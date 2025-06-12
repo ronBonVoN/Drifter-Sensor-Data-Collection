@@ -79,64 +79,8 @@ void loop() {
 
     m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
     hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
-    lat = gps.location.lat(); lng = gps.location.lng(); 
-    speed = gps.speed.mps(); heading = gps.course.deg(); 
-    tempHot = mcp.readThermocouple(); tempCold = mcp.readAmbient();
-    turbidity = -1174.7 * analogRead(A0) * (5.0/1024.0) + 5049.1;
-    oxygen = analogRead(A1) * (5.0/1024.0);
-
-    snprintf(data[0], 3, "%02d", m);
-    snprintf(data[1], 3, "%02d", d);
-    snprintf(data[2], 5, "%04d", y);
-    snprintf(data[3], 3, "%02d", hr);
-    snprintf(data[4], 3, "%02d", min);
-    snprintf(data[5], 3, "%02d", sec);
-    dtostrf(lat,       6, 2, data[6]);
-    dtostrf(lng,       6, 2, data[7]);
-    dtostrf(speed,     5, 2, data[8]);
-    dtostrf(heading,   6, 2, data[9]);
-    dtostrf(tempHot,   6, 2, data[10]); 
-    dtostrf(tempCold,  6, 2, data[11]); 
-    dtostrf(turbidity, 7, 2, data[12]); 
-    dtostrf(oxygen,    5, 2, data[13]);
-  
-    snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
-      data[0], data[1], data[2], data[3], data[4], data[5],
-      data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
-    File dataFile = SD.open(fileName, FILE_WRITE);
-    println_SerialFile(line, dataFile); 
-    /*
-    println_SerialFile(
       String(m)+"-"+String(d)+"-"+String(y)+"\t"+
       String(hr)+":"+String(min)+":"+String(sec)+"\t"+
-      time+"\t"+
-      String(lat)+"\t"+
-      String(lng)+"\t"+
-      String(speed)+"\t"+
-      String(heading)+"\t"+
-      String(tempHot)+"\t"+
-      String(tempCold) +"\t"+
-      String(turbidity)+"\t"+
-      String(oxygen), dataFile); 
-*/
-    display.clearDisplay(); 
-    display.setTextColor(WHITE); 
-    display.setTextSize(1); 
-    snprintf(line, sizeof(line), "%s-%s-%s %s:%s:%s", data[0], data[1], data[2], data[3], data[4], data[5]);
-    display.setCursor(0,0);  display.print(line); 
-    snprintf(line, sizeof(line), "lat:%s lng:%s", data[6], data[7]);
-    display.setCursor(0,10); display.print(line); 
-    snprintf(line, sizeof(line), "mph:%s deg:%s", data[8], data[9]);
-    display.setCursor(0,20); display.print(line);
-    snprintf(line, sizeof(line), "temp:%s, %s", data[10], data[11]);
-    display.setCursor(0,30); display.print(line);
-    snprintf(line, sizeof(line), "turbidity: %s", data[12]);
-    display.setCursor(0,40); display.print(line);
-    snprintf(line, sizeof(line), "oxygen:    %s", data[13]);
-    display.setCursor(0,50); display.print(line);
-    display.display(); 
-  }
-
   else {
   runs = 0; 
   wdt_enable(WDTO_8S); 
@@ -247,5 +191,3 @@ void sleep_timed(int secs) {
     delay(50);         // Short delay to avoid CPU hammering
   }
 }*/
-
-
