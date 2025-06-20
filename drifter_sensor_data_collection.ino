@@ -18,8 +18,8 @@
 #define SCREEN_ADDRESS (0x3C)
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET     4
-#define RELAY_PIN 7 
+#define OLED_RESET 7
+#define RELAY_PIN 4
 #define SDCHIP_SELECT 53
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -29,11 +29,11 @@ TinyGPSPlus gps;
 int runs = 0; 
 int m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0, oxygen = -1.0; 
-const char fileName[10] = "testing8.txt"; 
+const char fileName[10] = "9:30am_6.17.txt"; 
 char line[150];
 char data[14][10];
 bool serialEnable = 0; 
-volatile bool shouldWake = false;
+//volatile bool shouldWake = false;
 
 /*ISR(WDT_vect) {
   shouldWake = true;
@@ -45,6 +45,7 @@ void setup() {
   if (serialEnable) Serial.begin(9600);
   Serial1.begin(9600);
   Wire.begin(); 
+  
   pinMode(RELAY_PIN, OUTPUT);
   delay(2000); 
   digitalWrite(RELAY_PIN, HIGH); 
@@ -66,17 +67,20 @@ void setup() {
 }
 
 void loop() {
-  if (runs<2) {
+  if (runs<1) {
     runs++;  
     
     pinMode(RELAY_PIN, OUTPUT);
-    SD.begin(SDCHIP_SELECT);   
+    SD.begin(SDCHIP_SELECT); 
+    File dataFile = SD.open(fileName, FILE_WRITE);
+    
+    if (readVcc()<4700) println_SerialFile("***low battery***", dataFile); 
       
     unsigned long start = millis();
     do{
         while (Serial1.available())
         gps.encode(Serial1.read()); 
-    } while (millis()-start < 5000);
+    } while (millis()-start < 360000);//3mins 
 
     m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
     hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
@@ -104,7 +108,6 @@ void loop() {
     snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
       data[0], data[1], data[2], data[3], data[4], data[5],
       data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
-    File dataFile = SD.open(fileName, FILE_WRITE);
     println_SerialFile(line, dataFile); 
     /*
     println_SerialFile(
@@ -151,7 +154,10 @@ void loop() {
   delay(2000); 
 
   digitalWrite(RELAY_PIN, LOW); 
-  delay(5000);                      // sleep_timed(16);
+  for(int i=0; i<120; i++) { //10min wait
+  wdt_reset(); 
+  delay(5000);
+  }
   digitalWrite(RELAY_PIN, HIGH);
   wdt_reset(); 
 
@@ -208,7 +214,7 @@ void println_SerialFile(const char* message, File dataFile) {
   dataFile.println(message);
   dataFile.close(); 
 }
-
+/*
 void sleep_timed(int secs) {
   int loops = secs/8; 
   for (int i=0; i<loops; i++) {
@@ -231,12 +237,12 @@ void sleep_timed(int secs) {
    // while (!shouldWake) sleep_mode(); 
     
   //only in SLEEP_MODE_PWR_DOWN
-  /*  noInterrupts(); 
-  #if defined(BODS) && defined(BODSE)
-    MCUCR |= (1 << BODS) | (1 << BODSE);
-    MCUCR &= ~(1 << BODSE);
-  #endif
-    interrupts();*/
+  //  noInterrupts(); 
+  //#if defined(BODS) && defined(BODSE)
+  //  MCUCR |= (1 << BODS) | (1 << BODSE);
+  //  MCUCR &= ~(1 << BODSE);
+  //#endif
+  //  interrupts();
     
     sleep_cpu();
 
@@ -249,14 +255,16 @@ void sleep_timed(int secs) {
    // power_timer1_enable();
    // power_timer2_enable(); 
   }
-}
-
-/*void delayWithWDT(unsigned long ms) {
-  unsigned long start = millis();
-  while (millis() - start < ms) {
-    wdt_reset();       // Feed the watchdog
-    delay(50);         // Short delay to avoid CPU hammering
-  }
 }*/
+
+long readVcc() {
+  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1); 
+  delay(2); 
+  ADCSRA |= _BV(ADSC); 
+  while (bit_is_set(ADCSRA, ADSC));
+  uint16_t result = ADC;
+  long vcc = 1125300L / result; 
+  return vcc;
+}
 
 
