@@ -1,8 +1,12 @@
 /*to-do
-try putting scl and sda on same lines 
 test turning off display
-update github 
-test file*/
+test disconnecting thermocouple 
+
+tell scott abt 
+- drifter google earth 
+- github log 
+- fix wire diagram 
+*/
 
 #include <SD.h>
 #include <Wire.h>
@@ -32,14 +36,14 @@ TinyGPSPlus gps;
 File dataFile; 
 int m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0, oxygen = -1.0; 
-const char fileName[10] = "T623.txt"; 
+const char fileName[10] = "T626.txt"; 
 char line[200], data[14][10];
 const bool serialEnable = 0; 
-//volatile bool shouldWake = false;
+volatile bool shouldWake = false;
 
-/*ISR(WDT_vect) {
+ISR(WDT_vect) {
   shouldWake = true;
-}*/
+}
 
 void setup() {
   delay(10000); 
@@ -53,28 +57,33 @@ void setup() {
   delay(2000); 
 
   initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display");
-  initialize(SD.begin(SDCHIP_SELECT), "SD card");
+  delay(5000);
+  initialize(SD.begin(SDCHIP_SELECT), "SD card");  
   initialize(mcp.begin(I2C_ADDRESS), "thermocouple");
 
-  print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\tOxygen\n....\tUTC time\t....\t....\tmph\tdeg\tC\tC\tntu\t....\n");
+  print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\tOxygen\n....\tEST/UTC\t....\t....\tmph\tdeg\tC\tC\tntu\t....\n");
 }
 
 void loop() {
   pinMode(RELAY_PIN, OUTPUT);
     
+  print_SerialDisplay("Reading gps...\n"); 
   unsigned long start = millis();
   do{
       while (Serial1.available())
       gps.encode(Serial1.read()); 
-  } while (millis()-start < 180000);
-
+  } while (millis()-start < 180000); //180000
+ 
+  print_SerialDisplay("Reading sensors...");
   m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
   hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
+  adjustTime(); 
   lat = gps.location.lat(); lng = gps.location.lng(); 
   speed = gps.speed.mps(); heading = gps.course.deg(); 
   tempHot = mcp.readThermocouple(); tempCold = mcp.readAmbient();
   turbidity = -1174.7 * analogRead(A0) * (5.0/1024.0) + 5049.1;
   oxygen = analogRead(A1) * (5.0/1024.0);
+  print_SerialDisplay("sensor reading done./n");
 
   snprintf(data[0],  3, "%02d", m);
   snprintf(data[1],  3, "%02d", d);
@@ -124,23 +133,21 @@ void loop() {
   digitalWrite(RELAY_PIN, LOW); 
   for(int i=0; i<75; i++) { 
     wdt_reset(); 
-    delay(8000); 
-    wdt_reset(); 
+    sleep_8secs(); //delay(8000); //
   }
-  digitalWrite(RELAY_PIN, HIGH); 
-  wdt_reset(); 
+  wdt_reset(); digitalWrite(RELAY_PIN, HIGH); wdt_reset(); 
 
   power_spi_enable(); power_twi_enable(); wdt_reset(); delay(2000); 
   print_SerialDisplay("out of sleep mode.\n"); wdt_disable(); delay(3000); 
 }
 
 void initialize(bool x, const char* sensor) {
-  snprintf(line, sizeof(line), "Initializing %s", sensor, "...");
+  snprintf(line, sizeof(line), "Initializing %s...", sensor);
   print_SerialDisplay(line);
   if(!x) {
     snprintf(line, sizeof(line), "%s failed\n", sensor);
     print_SerialDisplay(line);
-    delay(180000); 
+    delay(10000); 
   }
   else {
     snprintf(line, sizeof(line), "%s initialization done.\n", sensor);
@@ -176,52 +183,46 @@ void print_SerialFile(const char* message) {
   else {
     snprintf(line, sizeof(line), "Error opening %s\n", fileName);
     print_SerialDisplay(line);
-    delay(120000); 
+    delay(10000); 
   }
 }
 
-/*
-void sleep_timed(int secs) {
-  int loops = secs/8; 
-  for (int i=0; i<loops; i++) {
+void adjustTime() {
+  if ((hr==0 && min==0 && sec==0) || (m<4 || m>10)); //only works between 4/1->10/31 when utc time is 4hr difference. otherwise will show utc time. 
+  else {
+    if (hr>=4) hr -= 4; 
+    else {
+      hr += 20;
+      d -= 1; 
+    }    
+    if (d==0) {
+    m -=1; 
+    switch (m) {
+      case 4: case 6: case 9:
+        d = 30;
+        break;
+      default:
+        d = 31;
+        break;
+      }
+    }
+  }
+}
+
+void sleep_8secs() {
     shouldWake = false;
     
     MCUSR = 0;
     WDTCSR |= (1 << WDCE) | (1 << WDE);
     WDTCSR = (1 << WDIE) | (1 << WDP3); 
     
-   // power_adc_disable();
-   // power_spi_disable();
-   // power_twi_disable();
-   // power_timer1_disable(); 
-   // power_timer2_disable(); 
-    
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN); //SLEEP_MODE_IDLE or SLEEP_MODE_PWR_DOWN
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
     sleep_enable();
-
-    // only in SLEEP_MODE_IDLE
-   // while (!shouldWake) sleep_mode(); 
-    
-  //only in SLEEP_MODE_PWR_DOWN
-  //  noInterrupts(); 
-  //#if defined(BODS) && defined(BODSE)
-  //  MCUCR |= (1 << BODS) | (1 << BODSE);
-  //  MCUCR &= ~(1 << BODSE);
-  //#endif
-  //  interrupts();
-    
     sleep_cpu();
-
     sleep_disable();
-    wdt_disable(); 
-
-  //  power_adc_enable();
-   // power_spi_enable();
-   // power_twi_enable();
-   // power_timer1_enable();
-   // power_timer2_enable(); 
-  }
-}*/
+    
+    wdt_enable(WDTO_8S);
+}
 
 
 
