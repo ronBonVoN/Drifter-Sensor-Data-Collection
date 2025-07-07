@@ -6,8 +6,8 @@ Kilroy was here
 /*to-do
 test turning off display
 test disconnecting thermocouple 
-print tags 
 make turbitity mount 
+charging caple on drifter 
 
 tell scott abt 
 - drifter google earth 
@@ -36,16 +36,17 @@ tell scott abt
 #define OLED_RESET 7
 #define RELAY_PIN 4
 #define SDCHIP_SELECT 53
+#define MCP9600_STATUS_OPEN (0x01)
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Adafruit_MCP9600 mcp; //thermocouple
 TinyGPSPlus gps;
-File dataFile; 
-int m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
+short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0, oxygen = -1.0; 
-const char fileName[10] = "T630.txt"; 
+const char fileName[10] = "T702.txt"; 
 char line[200];     // for writing/printing "lines"
 char data[14][10];  // where sensor data strings will go 
+bool firstRun = 1; 
 const bool serialEnable = 0; 
 volatile bool shouldWake = false; 
 
@@ -55,17 +56,26 @@ ISR(WDT_vect) {
 }
 
 void setup() {
+  /*Wire.end();
+  SPI.end();
+  delay(50);
+  Wire.begin();
+  SPI.begin(); */
+  
   delay(10000); //time for arduino to adjust if program resets 
   if (serialEnable) Serial.begin(9600);
   Serial1.begin(9600); //Serial for gps 
   Wire.begin(); //for i2c com
-  
+  delay(5000);
+ 
+ // Serial.println(1); 
+  initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display"); 
+
   pinMode(RELAY_PIN, OUTPUT);
   delay(2000); 
   digitalWrite(RELAY_PIN, HIGH); 
   delay(2000); 
   
-  initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display"); 
   initialize(SD.begin(SDCHIP_SELECT), "SD card"); 
   initialize(mcp.begin(I2C_ADDRESS), "thermocouple");
 
@@ -76,22 +86,30 @@ void setup() {
 void loop() {
 /************************************************************ relay on ************************************************************/
   pinMode(RELAY_PIN, OUTPUT); 
-    
+  if (!firstRun) SD.begin(SDCHIP_SELECT); 
+  else firstRun = 0; 
+
   print_SerialDisplay("Reading gps...\n"); 
   unsigned long start = millis();
   do{
       while (Serial1.available())
       gps.encode(Serial1.read()); 
-  } while (millis()-start < 180000); //3mins 
+  } while (millis()-start < 10000); //3mins 
  
   print_SerialDisplay("Reading sensors...");
   m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
   hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
   adjustTime(); //adjust time zone 
-  
   lat = gps.location.lat(); lng = gps.location.lng(); 
   speed = gps.speed.mps(); heading = gps.course.deg(); 
-  tempHot = mcp.readThermocouple(); tempCold = mcp.readAmbient();
+  if (thermocouplePresent()) {
+    tempHot = mcp.readThermocouple(); 
+    tempCold = mcp.readAmbient();
+  }
+  else {
+    tempHot = -1.0; 
+    tempCold = -1.0; 
+  }
   turbidity = -1174.7 * analogRead(A0) * (5.0/1024.0) + 5049.1; //equation from calibration 
   oxygen = analogRead(A1) * (5.0/1024.0);                       //equation from calibration 
   print_SerialDisplay("sensor reading done.\n");
@@ -148,7 +166,7 @@ void loop() {
   wdt_reset(); delay(2000); 
 
   digitalWrite(RELAY_PIN, LOW); 
-  for(int i=0; i<85; i++) { //around 10secs (adjusted # of loops from testing)
+  for(int i=0; i<2; i++) { //85 around 10secs (adjusted # of loops from testing)
     wdt_reset(); 
     sleepArduino(); //puts arduino into a low power mode (~8secs)
   }
@@ -178,6 +196,12 @@ bool displayPresent() { //for not trying to display to display if display is off
   return (Wire.endTransmission() == 0);
 }
 
+bool thermocouplePresent() {
+uint8_t status = mcp.getStatus();
+if (status & MCP9600_STATUS_OPEN) return 0; 
+else return 1; 
+}
+
 void print_SerialDisplay(const char* message) {
   if (serialEnable) Serial.print(message); 
   if (displayPresent()) {
@@ -191,9 +215,8 @@ void print_SerialDisplay(const char* message) {
 }
 
 void print_SerialFile(const char* message) {
-  SD.begin(SDCHIP_SELECT); 
   if (serialEnable) Serial.print(message); 
-  dataFile = SD.open(fileName, FILE_WRITE);
+  File dataFile = SD.open(fileName, FILE_WRITE);
   if (dataFile) {
    dataFile.print(message);
    dataFile.close(); 
@@ -206,8 +229,8 @@ void print_SerialFile(const char* message) {
 }
 
 void adjustTime() {
-  //shows est time between 4/1->10/31 when utc time is 4hr difference. otherwise will show utc time. 
-  if ((hr==0 && min==0 && sec==0) || (m<4 || m>10)); 
+  //shows utc time between 4/1->10/31 when utc time is 4hr difference to etc. otherwise will show etc time. 
+  if ((hr==0 && min==0 && sec==0) || (m<4 || m>10)) {}
   else {
     if (hr>=4) hr -= 4; 
     else {
