@@ -45,8 +45,9 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Adafruit_MCP9600 mcp; //thermocouple
 TinyGPSPlus gps;
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
+short displayCount = 2; //# of cycles display will run
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0, oxygen = -1.0; 
-const char fileName[10] = "T708.txt"; 
+const char fileName[10] = "T715.txt"; 
 char line[200];     // for writing/printing "lines"
 char data[14][10];  // where sensor data strings will go 
 bool firstRun = 1; 
@@ -59,33 +60,21 @@ ISR(WDT_vect) {
 }
 
 void setup() {
- /* Wire.end();
-  SPI.end();
-  delay(5000);
-  Wire.begin();
-  SPI.begin(); */
-  
   delay(5000); //time for arduino to adjust if program resets 
   if (serialEnable) Serial.begin(9600);
-  Serial1.begin(9600); //Serial for gps 
- 
-  //Serial.println(1);
+  Serial1.begin(9600); //Serial for gps
+  Wire.begin(); //for i2c com
+  Wire.setClock(100000); //make i2c com slower 
+  delay(5000); 
 
   pinMode(RELAY_PIN, OUTPUT);
   delay(2000); 
   digitalWrite(RELAY_PIN, HIGH); 
   delay(2000); 
   
-  Wire.begin(); //for i2c com
-  delay(2000);
   initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display");
-  Wire.end(); 
-  delay(2000); 
-
-  initialize(SD.begin(SDCHIP_SELECT), "SD card"); 
-  Wire.begin(); 
-  delay(2000); 
   initialize(mcp.begin(I2C_ADDRESS), "thermocouple"); 
+  initialize(SD.begin(SDCHIP_SELECT), "SD card"); 
 
   //file heading
   print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\tOxygen\n....\tEST/UTC\t....\t....\tmph\tdeg\tC\tC\tntu\t....\n");
@@ -94,15 +83,24 @@ void setup() {
 void loop() {
 /************************************************************ relay on ************************************************************/
   pinMode(RELAY_PIN, OUTPUT); 
-  if (!firstRun) SD.begin(SDCHIP_SELECT); 
-  else firstRun = 0; 
+  if (!firstRun) { //need to re-initialize sd card after relay shuts off, but dangerous to do twice during start up.
+    if (SD.begin(SDCHIP_SELECT)) {}
+    else {
+      print_SerialDisplay("SD card failed.\n"); 
+      delay(10000); 
+    }
+  }  
+  else {
+    firstRun = 0;
+  }
 
-  print_SerialDisplay("Reading gps...\n"); 
+  print_SerialDisplay("Reading gps..."); 
   unsigned long start = millis();
   do{
       while (Serial1.available())
       gps.encode(Serial1.read()); 
   } while (millis()-start < 180000); //3mins 
+  print_SerialDisplay("gps reading done.\n");
  
   print_SerialDisplay("Reading sensors...");
   m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
@@ -112,8 +110,8 @@ void loop() {
   speed = gps.speed.mps(); heading = gps.course.deg(); 
   tempHot = mcp.readThermocouple(); 
   tempCold = mcp.readAmbient();
-  turbidity = -1174.7 * analogRead(A0) * (5.0/1024.0) + 5049.1; //equation from calibration 
-  oxygen = analogRead(A1) * (5.0/1024.0);                       //equation from calibration 
+  turbidity = analogRead(A0) * (5.0/1024.0); //reads voltage  
+  oxygen = analogRead(A1) * (5.0/1024.0);    //read voltage 
   print_SerialDisplay("sensor reading done.\n");
 
   //writing floats to char array      ***size************ 
@@ -138,8 +136,7 @@ void loop() {
     data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
   print_SerialFile(line); 
 
-  //displaying data on display
-  if (displayPresent()) {
+  if (displayCount>0) {
     display.clearDisplay(); 
     display.setTextColor(WHITE); 
     display.setTextSize(1); 
@@ -156,8 +153,19 @@ void loop() {
     snprintf(line, sizeof(line), "oxygen:    %s", data[13]);
     display.setCursor(0,50); display.print(line);
     display.display(); 
-    delay(5000); 
+    delay(10000); 
   }
+
+  if (displayCount==1) {
+    print_SerialDisplay("Sleeping display....\n"); 
+    delay(2000); 
+    display.clearDisplay(); 
+    display.display(); 
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+    delay(2000); 
+  }
+  displayCount -= 1; 
+
 /****************************************************** relay off, arduino sleep  ******************************************************/
   //enabling watchdog, will reset arduino if wdt_reset() is not called in 8secs 
   wdt_enable(WDTO_8S);           
@@ -168,7 +176,7 @@ void loop() {
   wdt_reset(); delay(2000); 
 
   digitalWrite(RELAY_PIN, LOW); 
-  for(int i=0; i<85; i++) { //85 around 10secs (adjusted # of loops from testing)
+  for(int i=0; i<86; i++) { //86 around 10mins (adjusted # of loops from testing)
     wdt_reset(); 
     sleepArduino(); //puts arduino into a low power mode (~8secs)
   }
@@ -178,29 +186,25 @@ void loop() {
   wdt_reset(); delay(2000); 
   print_SerialDisplay("out of sleep mode.\n"); wdt_disable(); delay(3000); 
 }
+
 /************************************************************* functions *************************************************************/
 void initialize(bool x, const char* sensor) {
   snprintf(line, sizeof(line), "Initializing %s...", sensor);
   print_SerialDisplay(line);
-  if(!x) {
+  if(x) {
+    snprintf(line, sizeof(line), "%s initialization done.\n", sensor);
+    print_SerialDisplay(line);
+  }
+  else {
     snprintf(line, sizeof(line), "%s failed\n", sensor);
     print_SerialDisplay(line);
     delay(10000); //moves on after 10secs if sensor failed 
   }
-  else {
-    snprintf(line, sizeof(line), "%s initialization done.\n", sensor);
-    print_SerialDisplay(line);
-  }
-}
-
-bool displayPresent() { //for not trying to display to display if display is off
-  Wire.beginTransmission(SCREEN_ADDRESS);
-  return (Wire.endTransmission() == 0);
 }
 
 void print_SerialDisplay(const char* message) {
   if (serialEnable) Serial.print(message); 
-  if (displayPresent()) {
+  if (displayCount>0) {
     display.clearDisplay(); 
     display.setTextColor(WHITE); 
     display.setTextSize(1); 
