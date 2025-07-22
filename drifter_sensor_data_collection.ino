@@ -4,18 +4,6 @@ Kilroy was here
 */
 
 /*to-do
-
-!try moving display init again!
-
-test turning off display
-test disconnecting thermocouple 
-make turbitity mount 
-charging caple on drifter 
-
-tell scott abt 
-- drifter google earth 
-- github log 
-- fix wire diagram 
 */
 
 #include <SD.h>
@@ -40,16 +28,19 @@ tell scott abt
 #define RELAY_PIN 4
 #define SDCHIP_SELECT 53
 #define MCP9600_STATUS_OPEN (0x01)
+#define SLEEP_LOOPS 86 // 86 = ~10mins
+#define GPS_READ_MILLIS 180000 //180000 = 3mins 
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
 Adafruit_MCP9600 mcp; //thermocouple
 TinyGPSPlus gps;
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 short displayCount = 2; //# of cycles display will run
-float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0, oxygen = -1.0; 
-const char fileName[10] = "T715.txt"; 
+float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
+const char fileName[10] = "data.txt"; 
 char line[200];     // for writing/printing "lines"
-char data[14][10];  // where sensor data strings will go 
+char data[13][10];  // where sensor data strings will go 
 bool firstRun = 1; 
 const bool serialEnable = 0; 
 volatile bool shouldWake = false; 
@@ -77,7 +68,7 @@ void setup() {
   initialize(SD.begin(SDCHIP_SELECT), "SD card"); 
 
   //file heading
-  print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\tOxygen\n....\tEST/UTC\t....\t....\tmph\tdeg\tC\tC\tntu\t....\n");
+  print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\n....\tEST/UTC\t....\t....\tmph\tdeg\tC\tC\tntu\n");
 }
 
 void loop() {
@@ -99,7 +90,7 @@ void loop() {
   do{
       while (Serial1.available())
       gps.encode(Serial1.read()); 
-  } while (millis()-start < 180000); //3mins 
+  } while (millis()-start < GPS_READ_MILLIS); //3mins 
   print_SerialDisplay("gps reading done.\n");
  
   print_SerialDisplay("Reading sensors...");
@@ -110,8 +101,7 @@ void loop() {
   speed = gps.speed.mps(); heading = gps.course.deg(); 
   tempHot = mcp.readThermocouple(); 
   tempCold = mcp.readAmbient();
-  turbidity = analogRead(A0) * (5.0/1024.0); //reads voltage  
-  oxygen = analogRead(A1) * (5.0/1024.0);    //read voltage 
+  turbidity = analogRead(A4) * (5.0/1024.0); //reads voltage  
   print_SerialDisplay("sensor reading done.\n");
 
   //writing floats to char array      ***size************ 
@@ -127,13 +117,12 @@ void loop() {
   dtostrf(heading,   6, 2, data[9]);  // __0.00 -> 360.00
   dtostrf(tempHot,   6, 2, data[10]); // -00.00 -> _00.00
   dtostrf(tempCold,  6, 2, data[11]); // -00.00 -> _00.00
-  dtostrf(turbidity, 7, 2, data[12]); // 0000.00
-  dtostrf(oxygen,    5, 2, data[13]); // 00.00
+  dtostrf(turbidity, 4, 2, data[12]); // 0.00
 
   //printing data line to file 
-  snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+  snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
     data[0], data[1], data[2], data[3], data[4], data[5],
-    data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13]);
+    data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
   print_SerialFile(line); 
 
   if (displayCount>0) {
@@ -150,8 +139,6 @@ void loop() {
     display.setCursor(0,30); display.print(line);
     snprintf(line, sizeof(line), "turbidity: %s", data[12]);
     display.setCursor(0,40); display.print(line);
-    snprintf(line, sizeof(line), "oxygen:    %s", data[13]);
-    display.setCursor(0,50); display.print(line);
     display.display(); 
     delay(10000); 
   }
@@ -176,7 +163,7 @@ void loop() {
   wdt_reset(); delay(2000); 
 
   digitalWrite(RELAY_PIN, LOW); 
-  for(int i=0; i<86; i++) { //86 around 10mins (adjusted # of loops from testing)
+  for(int i=0; i<SLEEP_LOOPS; i++) { //around 10mins (adjusted # of loops from testing)
     wdt_reset(); 
     sleepArduino(); //puts arduino into a low power mode (~8secs)
   }
@@ -265,7 +252,3 @@ void sleepArduino() {
     
     wdt_enable(WDTO_8S);
 }
-
-
-
-
