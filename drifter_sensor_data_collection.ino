@@ -178,6 +178,7 @@ void loop() {
 void initialize(bool x, const char* sensor) {
   snprintf(line, sizeof(line), "Initializing %s...", sensor);
   print_SerialDisplay(line);
+  
   if(x) {
     snprintf(line, sizeof(line), "%s initialization done.\n", sensor);
     print_SerialDisplay(line);
@@ -216,7 +217,7 @@ void print_SerialFile(const char* message) {
 }
 
 void adjustTime() {
-  //shows utc time between 4/1->10/31 when utc time is 4hr difference to etc. otherwise will show etc time. 
+  //shows utc time between 4/1->10/31 when utc time is 4hr difference. otherwise will show etc time. 
   if ((hr==0 && min==0 && sec==0) || (m<4 || m>10)) {}
   else {
     if (hr>=4) hr -= 4; 
