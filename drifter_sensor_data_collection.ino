@@ -7,6 +7,7 @@ Kilroy was here
 */
 
 #include <SD.h>
+//#include <SdFat.h> 
 #include <Wire.h> 
 #include <Adafruit_I2CDevice.h>
 #include <Adafruit_I2CRegister.h>
@@ -33,12 +34,14 @@ Kilroy was here
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+//SdFat SD;
 Adafruit_MCP9600 mcp; //thermocouple
 TinyGPSPlus gps;
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 short displayCount = 2; //# of cycles display will run
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
-const char fileName[10] = "data.txt"; 
+/*const*/ char fileName[9] = "data.txt"; 
+char dateName[9];   //name fileName will be changed to depending on gps most recent date
 char line[200];     // for writing/printing "lines"
 char data[13][10];  // where sensor data strings will go 
 bool firstRun = 1; 
@@ -253,3 +256,20 @@ void sleepArduino() {
     
     wdt_enable(WDTO_8S);
 }
+
+/*void change_fileName_to_date() {
+  if (!(m==0) && !(d==0)) {
+    snprintf(dateName, sizeof(dateName), "%02d%02d.txt", m, d);
+    if (!SD.exists(dateName) && SD.exists(fileName)) {
+      SD.rename(fileName, dateName);
+      strcpy(fileName, dateName);  
+    }
+  }
+  else if ((m==0) && (d==0) && SD.exists(fileName) && ((fileName[0]-'0')*10 + (fileName[1]-'0'))<13 && ((fileName[2]-'0')*10 + (fileName[3]-'0'))<32) {
+    snprintf(dateName, sizeof(dateName), "%02d%02d.txt", random(13,99), random(32,99));
+    SD.rename(fileName, dateName);
+    strcpy(fileName, dateName);
+  }
+}*/
+  
+
