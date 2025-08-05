@@ -6,6 +6,23 @@ Kilroy was here
 /*to-do
 */
 
+#define I2C_ADDRESS (0x67)
+#define SCREEN_ADDRESS (0x3C)
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET 7
+#define RELAY_PIN 4
+#define TURBIDITY_PIN A4
+#define SDCHIP_SELECT 53
+#define MCP9600_STATUS_OPEN (0x01)
+#define SLEEP_LOOPS 86 // 86 = ~10mins
+#define GPS_READ_MILLIS 180000 //180000 = 3mins 
+#define GPS_SERIAL Serial1
+#define TINY_GSM_MODEM_SIM7600
+#define MODEM_SERIAL Serial2
+#define MODEM_PWK 9 
+#define MODEM_RST 4 
+
 #include <SD.h>
 #include <Wire.h> 
 #include <Adafruit_I2CDevice.h>
@@ -19,32 +36,28 @@ Kilroy was here
 #include <avr/wdt.h> 
 #include <avr/power.h>
 #include <avr/interrupt.h>
-
-#define I2C_ADDRESS (0x67)
-#define SCREEN_ADDRESS (0x3C)
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLED_RESET 7
-#define RELAY_PIN 4
-#define TURBIDITY_PIN A4
-#define SDCHIP_SELECT 53
-#define MCP9600_STATUS_OPEN (0x01)
-#define SLEEP_LOOPS 86 // 86 = ~10mins
-#define GPS_READ_MILLIS 180000 //180000 = 3mins 
+#include <TinyGsmClient.h>
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
 Adafruit_MCP9600 mcp; //thermocouple
 TinyGPSPlus gps;
+TinyGsm modem(MODEM_SERIAL);
+
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 short displayCount = 2; //# of cycles display will run
+//short msgSize; //for size of messege that will be sent through modem
+short i; //for intexing Modem output 
+unsigned long start; //for millis() while loops
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
+char c; //for reading Modem output
+char line[200];     // for general writing/printing
+char data[13][10];  // where sensor data strings will go
+char outputModem[512];
 const char fileName[9] = "DATA.txt"; 
-char line[200];     // for writing/printing "lines"
-char data[13][10];  // where sensor data strings will go 
+const char drifterName[7] = "Kilroy"; 
 bool firstRun = 1; 
 const bool serialEnable = 0; 
-volatile bool shouldWake = false; 
+volatile bool shouldWake = false;
 
 //for interrupt watchdog
 ISR(WDT_vect) {
@@ -54,7 +67,7 @@ ISR(WDT_vect) {
 void setup() {
   delay(5000); //time for arduino to adjust if program resets 
   if (serialEnable) Serial.begin(9600);
-  Serial1.begin(9600); //Serial for gps
+  GPS_SERIAL.begin(9600); //Serial for gps
   Wire.begin(); //for i2c com
   Wire.setClock(100000); //make i2c com slower  
   delay(5000); 
@@ -67,7 +80,7 @@ void setup() {
   initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display");
   initialize(mcp.begin(I2C_ADDRESS), "thermocouple"); 
   initialize(SD.begin(SDCHIP_SELECT), "SD card"); 
-
+  
   //file heading
   print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\n....\tEST/UTC\t....\t....\tmph\tdeg\tC\tC\tntu\n");
 }
@@ -87,10 +100,10 @@ void loop() {
   }
 
   print_SerialDisplay("Reading gps..."); 
-  unsigned long start = millis();
+  start = millis();
   do{
-      while (Serial1.available())
-      gps.encode(Serial1.read()); 
+      while (GPS_SERIAL.available())
+      gps.encode(GPS_SERIAL.read()); 
   } while (millis()-start < GPS_READ_MILLIS); //3mins 
   print_SerialDisplay("gps reading done.\n");
  
@@ -256,6 +269,66 @@ void sleepArduino() {
     
     wdt_enable(WDTO_8S);
 }
+
+bool sendCommand(const char* cmd, const char* res = "OK") {
+  MODEM_SERIAL.print(cmd);
+  outputModem[0] = '\0'; 
+  start = millis(); 
+  while (millis() - start < 10000) {    
+    while (MODEM_SERIAL.available()) {
+      c =  MODEM_SERIAL.read();
+      if (serialEnable) Serial.write(c);
+      i = strlen(outputModem); 
+      if (i < sizeof(outputModem)-1) {
+        outputModem[i] = c; 
+        outputModem[i + 1] = '\0'; 
+      }
+    } 
+     if (strstr(outputModem, res)) return 1; 
+  }
+  if (serialEnable) {
+    Serial.print(cmd); 
+    Serial.print(" timed out waiting for "); 
+    Serial.println(res);
+  }
+  return 0; 
+}
+
+void sendData() {
+  print_SerialDisplay("Initializing modem..."); 
+  start = millis(); 
+  while (millis()-start < 60000) {
+    if (sendCommand("AT\r")) break; 
+  }
+  if (!sendCommand("AT\r")) {
+    print_SerialDisplay("modem initialization failed.\n");
+    return; 
+  }
+  print_SerialDisplay("modem initialization done.\n"); 
+  if (!sendCommand("AT+CSQ\r")) return; 
+  if (!sendCommand("AT+CREG?\r")) return;  
+  if (!sendCommand("AT+CGDCONT=1,\"IP\",\"m2mglobal\"\r")) return;  
+  if (!sendCommand("AT+CGATT=1\r")) return;  
+  if (!sendCommand("AT+CGACT=1,1\r")) return;  
+  sendCommand("AT+HTTPTERM\r"); 
+  if (!sendCommand("AT+HTTPINIT\r")) return;   
+  if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) return;   
+  if (!sendCommand("AT+HTTPPARA=\"URL\",\"https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj\"\r")) return;  
+  if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) return;  
+  if (!sendCommand("AT+HTTPDATA=211,10000\r", "DOWNLOAD")) return;  
+  MODEM_SERIAL.print("{\"content\":\"");
+  MODEM_SERIAL.print(line); 
+  MODEM_SERIAL.print("\"}");
+  delay(10000);
+  if (sendCommand("AT+HTTPACTION=1\r", "+HTTPACTION: 1")) print_SerialDisplay("Data sent succesfully."); 
+  else print_SerialDisplay("Data sending failed."); 
+  delay(5000);
+  sendCommand("AT+HTTPTERM\r");
+}
+
+
+
+
 
 
   
