@@ -8,20 +8,20 @@ Kilroy was here
 
 #define I2C_ADDRESS (0x67)
 #define SCREEN_ADDRESS (0x3C)
+#define MCP9600_STATUS_OPEN (0x01)
+#define TURBIDITY_PIN A4
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET 7
+#define OLED_RESET 2
 #define RELAY_PIN 4
-#define TURBIDITY_PIN A4
 #define SDCHIP_SELECT 53
-#define MCP9600_STATUS_OPEN (0x01)
-#define SLEEP_LOOPS 86 // 86 = ~10mins
-#define GPS_READ_MILLIS 180000 //180000 = 3mins 
-#define GPS_SERIAL Serial1
-#define TINY_GSM_MODEM_SIM7600
-#define MODEM_SERIAL Serial2
 #define MODEM_PWK 9 
-#define MODEM_RST 4 
+#define MODEM_RST 7 
+#define SLEEP_LOOPS 2 // 86 = ~10mins
+#define GPS_READ_MILLIS 5000 //180000 = 3mins 
+#define GPS_SERIAL Serial1
+#define MODEM_SERIAL Serial2
+#define TINY_GSM_MODEM_SIM7600
 
 #include <SD.h>
 #include <Wire.h> 
@@ -41,7 +41,7 @@ Kilroy was here
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Adafruit_MCP9600 mcp; //thermocouple
 TinyGPSPlus gps;
-TinyGsm modem(MODEM_SERIAL);
+TinyGsm modem(MODEM_SERIAL); //cellular communication module
 
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 short displayCount = 2; //# of cycles display will run
@@ -56,7 +56,7 @@ char outputModem[512];
 const char fileName[9] = "DATA.txt"; 
 const char drifterName[7] = "Kilroy"; 
 bool firstRun = 1; 
-const bool serialEnable = 0; 
+const bool serialEnable = 1; 
 volatile bool shouldWake = false;
 
 //for interrupt watchdog
@@ -66,8 +66,9 @@ ISR(WDT_vect) {
 
 void setup() {
   delay(5000); //time for arduino to adjust if program resets 
-  if (serialEnable) Serial.begin(9600);
-  GPS_SERIAL.begin(9600); //Serial for gps
+  if (serialEnable) Serial.begin(115200);
+  GPS_SERIAL.begin(9600); 
+  MODEM_SERIAL.begin(115200); 
   Wire.begin(); //for i2c com
   Wire.setClock(100000); //make i2c com slower  
   delay(5000); 
@@ -108,13 +109,13 @@ void loop() {
   print_SerialDisplay("gps reading done.\n");
  
   print_SerialDisplay("Reading sensors...");
-  m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
-  hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
-  adjustTime(); //adjust time zone 
-  lat = gps.location.lat(); lng = gps.location.lng(); 
-  speed = gps.speed.mps(); heading = gps.course.deg(); 
-  tempHot = mcp.readThermocouple(); 
-  tempCold = mcp.readAmbient();
+  //m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
+  //hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
+  //adjustTime(); //adjust time zone 
+  //lat = gps.location.lat(); lng = gps.location.lng(); 
+  //speed = gps.speed.mps(); heading = gps.course.deg(); 
+  //tempHot = mcp.readThermocouple(); 
+  //tempCold = mcp.readAmbient();
   turbidity = analogRead(TURBIDITY_PIN) * (5.0/1024.0); //reads voltage  
   print_SerialDisplay("sensor reading done.\n"); 
 
@@ -138,6 +139,8 @@ void loop() {
     data[0], data[1], data[2], data[3], data[4], data[5],
     data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
   print_SerialFile(line); 
+
+  sendData(); //send data line to url through modem
 
   if (displayCount>0) {
     display.clearDisplay(); 
@@ -270,11 +273,11 @@ void sleepArduino() {
     wdt_enable(WDTO_8S);
 }
 
-bool sendCommand(const char* cmd, const char* res = "OK") {
+bool sendCommand(const char* cmd, const char* res = "OK", int wait = 10000) {
   MODEM_SERIAL.print(cmd);
   outputModem[0] = '\0'; 
   start = millis(); 
-  while (millis() - start < 10000) {    
+  while (millis() - start < wait) {    
     while (MODEM_SERIAL.available()) {
       c =  MODEM_SERIAL.read();
       if (serialEnable) Serial.write(c);
@@ -295,35 +298,51 @@ bool sendCommand(const char* cmd, const char* res = "OK") {
 }
 
 void sendData() {
-  print_SerialDisplay("Initializing modem..."); 
+  print_SerialDisplay("Initializing modem...\n\n"); 
+  
+  pinMode(MODEM_PWK, OUTPUT);
+  digitalWrite(MODEM_PWK, LOW);
+  delay(3000); 
+  digitalWrite(MODEM_PWK, HIGH); 
+  delay(3000); 
+  
   start = millis(); 
   while (millis()-start < 60000) {
     if (sendCommand("AT\r")) break; 
-  }
+  } 
   if (!sendCommand("AT\r")) {
-    print_SerialDisplay("modem initialization failed.\n");
-    return; 
+    print_SerialDisplay("\nmodem initialization failed.\n");
+    goto shutdown;  
   }
-  print_SerialDisplay("modem initialization done.\n"); 
-  if (!sendCommand("AT+CSQ\r")) return; 
-  if (!sendCommand("AT+CREG?\r")) return;  
-  if (!sendCommand("AT+CGDCONT=1,\"IP\",\"m2mglobal\"\r")) return;  
-  if (!sendCommand("AT+CGATT=1\r")) return;  
-  if (!sendCommand("AT+CGACT=1,1\r")) return;  
-  sendCommand("AT+HTTPTERM\r"); 
-  if (!sendCommand("AT+HTTPINIT\r")) return;   
-  if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) return;   
-  if (!sendCommand("AT+HTTPPARA=\"URL\",\"https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj\"\r")) return;  
-  if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) return;  
-  if (!sendCommand("AT+HTTPDATA=211,10000\r", "DOWNLOAD")) return;  
-  MODEM_SERIAL.print("{\"content\":\"");
-  MODEM_SERIAL.print(line); 
-  MODEM_SERIAL.print("\"}");
-  delay(10000);
-  if (sendCommand("AT+HTTPACTION=1\r", "+HTTPACTION: 1")) print_SerialDisplay("Data sent succesfully."); 
-  else print_SerialDisplay("Data sending failed."); 
+  print_SerialDisplay("\nmodem initialization done.\n"); 
+  
+  if (!sendCommand("AT+CSQ\r")) goto shutdown;   
+  if (!sendCommand("AT+CREG?\r")) goto shutdown;    
+  if (!sendCommand("AT+CGDCONT=1,\"IP\",\"m2mglobal\"\r")) goto shutdown;    
+  if (!sendCommand("AT+CGATT=1\r")) goto shutdown;    
+  if (!sendCommand("AT+CGACT=1,1\r")) goto shutdown;    
+  sendCommand("AT+HTTPTERM\r", "AT+HTTPTERM");  
+  if (!sendCommand("AT+HTTPINIT\r")) goto shutdown;     
+  if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) goto shutdown;     
+  if (!sendCommand("AT+HTTPPARA=\"URL\",\"https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj\"\r")) goto shutdown;    
+  if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) goto shutdown;    
+  if (!sendCommand("AT+HTTPDATA=19,10000\r", "DOWNLOAD")) goto shutdown;    
+  if (!sendCommand("{\"content\":\"HELLO\"}")) goto shutdown; 
   delay(5000);
-  sendCommand("AT+HTTPTERM\r");
+  
+  if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
+    delay(5000);
+    print_SerialDisplay("\nData sent succesfully.\n");  
+    goto shutdown; 
+  }
+  else print_SerialDisplay("\nData sending failed.\n");
+  
+  shutdown:  
+    print_SerialDisplay("\nModem shutdown...\n");
+    delay(5000);
+    sendCommand("AT+HTTPTERM\r");   
+    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\nmodem shutdown successfully.\n");
+    else print_SerialDisplay("\nmodem shutdown failed.\n");
 }
 
 
