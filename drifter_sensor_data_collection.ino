@@ -95,6 +95,7 @@ void loop() {
   print_SerialDisplay("gps reading done.\n");
  
   print_SerialDisplay("Reading sensors...");
+  wdt_enable(WDTO_8S); //enabling watchdog, will reset arduino if wdt_reset() is not called in 8secs
   m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
   hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
   adjustTime(); //adjust time zone 
@@ -102,7 +103,8 @@ void loop() {
   speed = gps.speed.mps(); heading = gps.course.deg(); 
   tempHot = mcp.readThermocouple(); 
   tempCold = mcp.readAmbient();
-  turbidity = analogRead(TURBIDITY_PIN) * (5.0/1024.0); //reads voltage  
+  turbidity = analogRead(TURBIDITY_PIN) * (5.0/1024.0); //reads voltage
+  wdt_disable();  
   print_SerialDisplay("sensor reading done.\n"); 
 
   //writing floats to char array      ***size************ 
