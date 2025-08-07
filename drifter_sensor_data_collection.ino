@@ -4,6 +4,7 @@ Kilroy was here
 */
 
 /*to-do
+ask abt units
 */
 
 #include <SD.h>
@@ -40,15 +41,28 @@ short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1;
 short displayCount = 2; //# of cycles display will run
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
 const char fileName[9] = "DATA.txt"; 
-char line[200];     // for writing/printing "lines"
-char data[13][10];  // where sensor data strings will go 
+char line[150];     // for writing/printing "lines"
+char data[13][15];  // where sensor data strings will go 
 bool firstRun = 1; 
-const bool serialEnable = 0; 
+const bool serialEnable = 1; 
 volatile bool shouldWake = false; 
 
 //for interrupt watchdog
 ISR(WDT_vect) {
   shouldWake = true;
+}
+
+void print_SerialDisplay(const char* message, int wait = 0) {
+  if (serialEnable) Serial.print(message); 
+  if (displayCount>0) {
+    display.clearDisplay(); 
+    display.setTextColor(WHITE); 
+    display.setTextSize(1); 
+    display.setCursor(0,20);
+    display.print(message); 
+    display.display();
+    delay(wait); 
+  }
 }
 
 void setup() {
@@ -78,8 +92,7 @@ void loop() {
   if (!firstRun) { //need to re-initialize sd card after relay shuts off, but dangerous to do twice during start up.
     if (SD.begin(SDCHIP_SELECT)) {}
     else {
-      print_SerialDisplay("SD card failed.\n"); 
-      delay(10000); 
+      print_SerialDisplay("SD card failed.\n", 10000); 
     }
   }  
   else {
@@ -114,13 +127,13 @@ void loop() {
   snprintf(data[3],  3, "%02d", hr);  // 00\0
   snprintf(data[4],  3, "%02d", min); // 00\0
   snprintf(data[5],  3, "%02d", sec); // 00\0
-  dtostrf(lat,       6, 2, data[6]);  // -90.00 -> _90.00
-  dtostrf(lng,       6, 2, data[7]);  // -90.00 -> _90.00
-  dtostrf(speed,     5, 2, data[8]);  // 00.00
-  dtostrf(heading,   6, 2, data[9]);  // __0.00 -> 360.00
-  dtostrf(tempHot,   6, 2, data[10]); // -00.00 -> _00.00
-  dtostrf(tempCold,  6, 2, data[11]); // -00.00 -> _00.00
-  dtostrf(turbidity, 4, 2, data[12]); // 0.00
+  dtostrf(lat,       10, 8, data[6]); // -90.000000 -> _90.000000
+  dtostrf(lng,       10, 8, data[7]); // -90.000000 -> _90.000000
+  dtostrf(speed,     5,  2, data[8]);  // 00.00
+  dtostrf(heading,   6,  2, data[9]);  // __0.00 -> 360.00
+  dtostrf(tempHot,   6,  2, data[10]); // -00.00 -> _00.00
+  dtostrf(tempCold,  6,  2, data[11]); // -00.00 -> _00.00
+  dtostrf(turbidity, 4,  2, data[12]); // 0.00
 
   //printing data line to file 
   snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
@@ -134,21 +147,22 @@ void loop() {
     display.setTextSize(1); 
     snprintf(line, sizeof(line), "%s-%s-%s %s:%s:%s", data[0], data[1], data[2], data[3], data[4], data[5]); 
     display.setCursor(0,0);  display.print(line);                                                            
-    snprintf(line, sizeof(line), "lat:%s lng:%s", data[6], data[7]);                                         
-    display.setCursor(0,10); display.print(line); 
-    snprintf(line, sizeof(line), "mph:%s deg:%s", data[8], data[9]);                                         
+    snprintf(line, sizeof(line), "lat:%s", data[6]);
+    display.setCursor(0,10); display.print(line);                                          
+    snprintf(line, sizeof(line), "lng:%s", data[7]);                                         
     display.setCursor(0,20); display.print(line);
-    snprintf(line, sizeof(line), "temp:%s, %s", data[10], data[11]);
+    snprintf(line, sizeof(line), "mph:%s deg:%s", data[8], data[9]);                                         
     display.setCursor(0,30); display.print(line);
-    snprintf(line, sizeof(line), "turbidity: %s", data[12]);
+    snprintf(line, sizeof(line), "temp:%s, %s", data[10], data[11]);
     display.setCursor(0,40); display.print(line);
+    snprintf(line, sizeof(line), "turbidity: %s", data[12]);
+    display.setCursor(0,50); display.print(line);
     display.display(); 
     delay(10000); 
   }
 
   if (displayCount==1) {
-    print_SerialDisplay("Sleeping display....\n"); 
-    delay(2000); 
+    print_SerialDisplay("Sleeping display....\n", 2000); 
     display.clearDisplay(); 
     display.display(); 
     display.ssd1306_command(SSD1306_DISPLAYOFF);
@@ -188,20 +202,7 @@ void initialize(bool x, const char* sensor) {
   }
   else {
     snprintf(line, sizeof(line), "%s failed\n", sensor);
-    print_SerialDisplay(line);
-    delay(10000); //moves on after 10secs if sensor failed 
-  }
-}
-
-void print_SerialDisplay(const char* message) {
-  if (serialEnable) Serial.print(message); 
-  if (displayCount>0) {
-    display.clearDisplay(); 
-    display.setTextColor(WHITE); 
-    display.setTextSize(1); 
-    display.setCursor(0,20);
-    display.print(message); 
-    display.display();
+    print_SerialDisplay(line, 10000); //moves on after 10secs if sensor failed 
   }
 }
 
@@ -217,8 +218,7 @@ void print_SerialFile(const char* message) {
   else { 
     wdt_disable();
     snprintf(line, sizeof(line), "Error opening %s\n", fileName);
-    print_SerialDisplay(line);
-    delay(10000); //moves on ater 10secs if file can't be writen to 
+    print_SerialDisplay(line, 10000); //moves on ater 10secs if file can't be writen to 
   }
 }
 
