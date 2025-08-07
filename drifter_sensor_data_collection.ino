@@ -44,17 +44,19 @@ TinyGPSPlus gps;
 TinyGsm modem(MODEM_SERIAL); //cellular communication module
 
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
-short displayCount = 2; //# of cycles display will run
+short displayCount = 100; //# of cycles display will run
 //short msgSize; //for size of messege that will be sent through modem
 short i; //for intexing Modem output 
 unsigned long start; //for millis() while loops
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
 char c; //for reading Modem output
-char line[200];     // for general writing/printing
-char data[13][10];  // where sensor data strings will go
+char line[100]; // for general writing/printing
+char dataLine[200]; //for excel convertable data lines 
+char cmd[200]; // for building modem commands 
+char msg[250];  // for building modem message command 
+char data[13][10]; // where sensor data strings will go
 char outputModem[512];
 const char fileName[9] = "DATA.txt"; 
-const char drifterName[7] = "Kilroy"; 
 bool firstRun = 1; 
 const bool serialEnable = 1; 
 volatile bool shouldWake = false;
@@ -62,6 +64,19 @@ volatile bool shouldWake = false;
 //for interrupt watchdog
 ISR(WDT_vect) {
   shouldWake = true;
+}
+
+void print_SerialDisplay(const char* message, int wait = 0) {
+  if (serialEnable) Serial.print(message); 
+  if (displayCount>0) {
+    display.clearDisplay(); 
+    display.setTextColor(WHITE); 
+    display.setTextSize(1); 
+    display.setCursor(0,20);
+    display.print(message); 
+    display.display();
+    delay(wait); 
+  }
 }
 
 void setup() {
@@ -92,8 +107,7 @@ void loop() {
   if (!firstRun) { //need to re-initialize sd card after relay shuts off, but dangerous to do twice during start up.
     if (SD.begin(SDCHIP_SELECT)) {}
     else {
-      print_SerialDisplay("SD card failed.\n"); 
-      delay(10000); 
+      print_SerialDisplay("SD card failed.\n", 10000); 
     }
   }  
   else {
@@ -134,13 +148,13 @@ void loop() {
   dtostrf(tempCold,  6, 2, data[11]); // -00.00 -> _00.00
   dtostrf(turbidity, 4, 2, data[12]); // 0.00
 
-  //printing data line to file 
-  snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+  //printing data to file 
+  snprintf(dataLine, sizeof(dataLine), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
     data[0], data[1], data[2], data[3], data[4], data[5],
     data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
-  print_SerialFile(line); 
+  print_SerialFile(dataLine); 
 
-  sendData(); //send data line to url through modem
+  sendData(); //send data to url through modem
 
   if (displayCount>0) {
     display.clearDisplay(); 
@@ -161,8 +175,7 @@ void loop() {
   }
 
   if (displayCount==1) {
-    print_SerialDisplay("Sleeping display....\n"); 
-    delay(2000); 
+    print_SerialDisplay("Sleeping display....\n", 2000); 
     display.clearDisplay(); 
     display.display(); 
     display.ssd1306_command(SSD1306_DISPLAYOFF);
@@ -202,20 +215,7 @@ void initialize(bool x, const char* sensor) {
   }
   else {
     snprintf(line, sizeof(line), "%s failed\n", sensor);
-    print_SerialDisplay(line);
-    delay(10000); //moves on after 10secs if sensor failed 
-  }
-}
-
-void print_SerialDisplay(const char* message) {
-  if (serialEnable) Serial.print(message); 
-  if (displayCount>0) {
-    display.clearDisplay(); 
-    display.setTextColor(WHITE); 
-    display.setTextSize(1); 
-    display.setCursor(0,20);
-    display.print(message); 
-    display.display();
+    print_SerialDisplay(line, 10000); //moves on after 10secs if sensor failed 
   }
 }
 
@@ -231,8 +231,7 @@ void print_SerialFile(const char* message) {
   else { 
     wdt_disable();
     snprintf(line, sizeof(line), "Error opening %s\n", fileName);
-    print_SerialDisplay(line);
-    delay(10000); //moves on ater 10secs if file can't be writen to 
+    print_SerialDisplay(line, 10000); //moves on ater 10secs if file can't be writen to 
   }
 }
 
@@ -311,7 +310,7 @@ void sendData() {
     if (sendCommand("AT\r")) break; 
   } 
   if (!sendCommand("AT\r")) {
-    print_SerialDisplay("\nmodem initialization failed.\n");
+    print_SerialDisplay("\nmodem initialization failed.\n", 10000);
     goto shutdown;  
   }
   print_SerialDisplay("\nmodem initialization done.\n"); 
@@ -326,23 +325,30 @@ void sendData() {
   if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) goto shutdown;     
   if (!sendCommand("AT+HTTPPARA=\"URL\",\"https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj\"\r")) goto shutdown;    
   if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) goto shutdown;    
-  if (!sendCommand("AT+HTTPDATA=19,10000\r", "DOWNLOAD")) goto shutdown;    
-  if (!sendCommand("{\"content\":\"HELLO\"}")) goto shutdown; 
+  snprintf(msg, sizeof(msg), "{\"content\":\"%s\"}", dataLine);
+  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(msg));
+  if (!sendCommand(cmd, "DOWNLOAD")) goto shutdown;    
+  if (!sendCommand(msg)) goto shutdown; 
+ // if (!sendCommand("AT+HTTPDATA=19,10000\r", "DOWNLOAD")) goto shutdown;    
+ // if (!sendCommand("{\"content\":\"HELLO\"}")) goto shutdown; 
   delay(5000);
   
   if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
     delay(5000);
-    print_SerialDisplay("\nData sent succesfully.\n");  
+    print_SerialDisplay("\nData sent succesfully.\n", 5000);
     goto shutdown; 
   }
-  else print_SerialDisplay("\nData sending failed.\n");
+  else {
+    print_SerialDisplay("\nData sending failed.\n", 10000);
+    if (displayCount > 0) delay(5000); 
+  }
   
   shutdown:  
     print_SerialDisplay("\nModem shutdown...\n");
     delay(5000);
     sendCommand("AT+HTTPTERM\r");   
     if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\nmodem shutdown successfully.\n");
-    else print_SerialDisplay("\nmodem shutdown failed.\n");
+    else print_SerialDisplay("\nmodem shutdown failed.\n", 10000);
 }
 
 
