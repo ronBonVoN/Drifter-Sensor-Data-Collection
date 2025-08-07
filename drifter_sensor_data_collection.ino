@@ -4,6 +4,10 @@ Kilroy was here
 */
 
 /*to-do
+ ask abt units
+ ask sarah for code
+ make bots
+ new power
 */
 
 #define I2C_ADDRESS (0x67)
@@ -50,13 +54,14 @@ short i; //for intexing Modem output
 unsigned long start; //for millis() while loops
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
 char c; //for reading Modem output
-char line[100]; // for general writing/printing
-char dataLine[200]; //for excel convertable data lines 
+char line[150]; // for general writing/printing
 char cmd[200]; // for building modem commands 
-char msg[250];  // for building modem message command 
-char data[13][10]; // where sensor data strings will go
+char msg[200];  // for building modem message command 
+char data[13][15]; // where sensor data will go
 char outputModem[512];
 const char fileName[9] = "DATA.txt"; 
+// url/webhook to send data to 
+const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
 bool firstRun = 1; 
 const bool serialEnable = 1; 
 volatile bool shouldWake = false;
@@ -140,19 +145,19 @@ void loop() {
   snprintf(data[3],  3, "%02d", hr);  // 00\0
   snprintf(data[4],  3, "%02d", min); // 00\0
   snprintf(data[5],  3, "%02d", sec); // 00\0
-  dtostrf(lat,       6, 2, data[6]);  // -90.00 -> _90.00
-  dtostrf(lng,       6, 2, data[7]);  // -90.00 -> _90.00
-  dtostrf(speed,     5, 2, data[8]);  // 00.00
-  dtostrf(heading,   6, 2, data[9]);  // __0.00 -> 360.00
-  dtostrf(tempHot,   6, 2, data[10]); // -00.00 -> _00.00
-  dtostrf(tempCold,  6, 2, data[11]); // -00.00 -> _00.00
-  dtostrf(turbidity, 4, 2, data[12]); // 0.00
+   dtostrf(lat,      10, 8, data[6]); // -90.000000 -> _90.000000
+  dtostrf(lng,       10, 8, data[7]); // -90.000000 -> _90.000000
+  dtostrf(speed,     5,  2, data[8]);  // 00.00
+  dtostrf(heading,   6,  2, data[9]);  // __0.00 -> 360.00
+  dtostrf(tempHot,   6,  2, data[10]); // -00.00 -> _00.00
+  dtostrf(tempCold,  6,  2, data[11]); // -00.00 -> _00.00
+  dtostrf(turbidity, 4,  2, data[12]); // 0.00
 
   //printing data to file 
-  snprintf(dataLine, sizeof(dataLine), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+  snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
     data[0], data[1], data[2], data[3], data[4], data[5],
     data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
-  print_SerialFile(dataLine); 
+  print_SerialFile(line); 
 
   sendData(); //send data to url through modem
 
@@ -162,14 +167,16 @@ void loop() {
     display.setTextSize(1); 
     snprintf(line, sizeof(line), "%s-%s-%s %s:%s:%s", data[0], data[1], data[2], data[3], data[4], data[5]); 
     display.setCursor(0,0);  display.print(line);                                                            
-    snprintf(line, sizeof(line), "lat:%s lng:%s", data[6], data[7]);                                         
-    display.setCursor(0,10); display.print(line); 
+    snprintf(line, sizeof(line), "lat:%s", data[6]);
+    display.setCursor(0,10); display.print(line);                                          
+    snprintf(line, sizeof(line), "lng:%s", data[7]);                                              
+    display.setCursor(0,20); display.print(line); 
     snprintf(line, sizeof(line), "mph:%s deg:%s", data[8], data[9]);                                         
-    display.setCursor(0,20); display.print(line);
-    snprintf(line, sizeof(line), "temp:%s, %s", data[10], data[11]);
     display.setCursor(0,30); display.print(line);
-    snprintf(line, sizeof(line), "turbidity: %s", data[12]);
+    snprintf(line, sizeof(line), "temp:%s, %s", data[10], data[11]);
     display.setCursor(0,40); display.print(line);
+    snprintf(line, sizeof(line), "turbidity: %s", data[12]);
+    display.setCursor(0,50); display.print(line);
     display.display(); 
     delay(10000); 
   }
@@ -323,25 +330,27 @@ void sendData() {
   sendCommand("AT+HTTPTERM\r", "AT+HTTPTERM");  
   if (!sendCommand("AT+HTTPINIT\r")) goto shutdown;     
   if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) goto shutdown;     
-  if (!sendCommand("AT+HTTPPARA=\"URL\",\"https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj\"\r")) goto shutdown;    
+  
+  snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"\r", url);
+  
+  if (!sendCommand(cmd)) goto shutdown;    
   if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) goto shutdown;    
-  snprintf(msg, sizeof(msg), "{\"content\":\"%s\"}", dataLine);
+  
+  snprintf(msg, sizeof(line), "{\"content\":\"%s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
+    data[0], data[1], data[2], data[3], data[4], data[5],
+    data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
   snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(msg));
+  
   if (!sendCommand(cmd, "DOWNLOAD")) goto shutdown;    
   if (!sendCommand(msg)) goto shutdown; 
- // if (!sendCommand("AT+HTTPDATA=19,10000\r", "DOWNLOAD")) goto shutdown;    
- // if (!sendCommand("{\"content\":\"HELLO\"}")) goto shutdown; 
   delay(5000);
   
   if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
     delay(5000);
     print_SerialDisplay("\nData sent succesfully.\n", 5000);
-    goto shutdown; 
   }
-  else {
-    print_SerialDisplay("\nData sending failed.\n", 10000);
-    if (displayCount > 0) delay(5000); 
-  }
+  else print_SerialDisplay("\nData sending failed.\n", 10000);
+
   
   shutdown:  
     print_SerialDisplay("\nModem shutdown...\n");
