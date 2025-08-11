@@ -40,6 +40,7 @@ async def on_message(message):
             await bot_channel.send("Incorrect number of lines.")
             return
     else: 
+        await bot_channel.send("Read channel description to find how to correctly format a command to create a .txt data file.")
         return 
     
     try: 
@@ -65,29 +66,32 @@ async def on_message(message):
         await bot_channel.send("Incorrect channel name.")
         return 
     
-    messages = []
-    async for message in read_channel.history(after=start_date, before=end_date, oldest_first=True):
-        messages.append(message)
+    file_content = []   
+    num_channel_msgs = 0
+    msgs_with_name = 0
+    msgs_formatted = 0
     
-    for msg in messages:
-        if not msg.content.startswith(f"~{name}"): 
-            try: 
-                await msg.delete()
-            except: 
-                await bot_channel.send("Error formating file.")
-                break
+    async for message in read_channel.history(after=start_date, before=end_date, oldest_first=True):
+        num_channel_msgs += 1
+        if message.content.startswith(f"~{name}"): 
+            file_content.append(message)
+            msgs_with_name += 1
 
+    msgs_formatted = msgs_with_name
+    
+    for msg in file_content:
         try: 
             new_content = msg.content[len(f"~{name}"):].lstrip().replace(" ", "\t")
             await msg.edit(content=new_content)
         except: 
-            await bot_channel.send("Error formating file.")
-            break          
+            msgs_formatted -= 1
+            
+    await bot_channel.send(f"{num_channel_msgs} messages found\n{msgs_with_name} messages found with drifter name {name}\n{msgs_formatted} messages formatted to clear drifter name \"{name}\" and replace spaces with tabs (\\t)")          
     
     file_name = f"{name}_{start_date.strftime('%Y.%m.%d')}_{end_date.strftime('%Y.%m.%d')}.txt"
     
     with open(file_name, "w", encoding="utf-8") as f:
-        for msg in messages:
+        for msg in file_content:
             f.write(msg.content + "\n")
     
     await bot_channel.send(file=discord.File(file_name))
