@@ -8,6 +8,7 @@ Kilroy was here
  ask sarah for code
  make bots
  new power
+ add bools display and led 
 */
 
 #define I2C_ADDRESS (0x67)
@@ -47,23 +48,28 @@ Adafruit_MCP9600 mcp; //thermocouple
 TinyGPSPlus gps;
 TinyGsm modem(MODEM_SERIAL); //cellular communication module
 
-short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
+// customizable vars
+const char fileName[13] = "DATA.txt"; 
+const char drifterName[20] = "Kilroy"; 
+const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
+    // for testing -> "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj"
+    // for field   -> "****"
+
+// change for testing 
 short displayCount = 100; //# of cycles display will run
-//short msgSize; //for size of messege that will be sent through modem
-short i; //for intexing Modem output 
+const bool serialEnable = 0; 
+
+short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
+short i;             //for intexing Modem output 
 unsigned long start; //for millis() while loops
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
-char c; //for reading Modem output
-char line[150]; // for general writing/printing
-char cmd[200]; // for building modem commands 
-char msg[200];  // for building modem message command 
-char data[13][15]; // where sensor data will go
+char c;             //for reading Modem output
+char line[150];     // for general writing/printing
+char cmd[200];      // for building modem commands 
+char msg[200];      // for building modem message command 
+char data[13][15];  // where sensor data will go
 char outputModem[512];
-const char fileName[9] = "DATA.txt"; 
-// url/webhook to send data to 
-const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
 bool firstRun = 1; 
-const bool serialEnable = 1; 
 volatile bool shouldWake = false;
 
 //for interrupt watchdog
@@ -119,13 +125,13 @@ void loop() {
     firstRun = 0;
   }
 
-  print_SerialDisplay("Reading gps..."); 
+/*  print_SerialDisplay("Reading gps..."); 
   start = millis();
   do{
       while (GPS_SERIAL.available())
       gps.encode(GPS_SERIAL.read()); 
   } while (millis()-start < GPS_READ_MILLIS); //3mins 
-  print_SerialDisplay("gps reading done.\n");
+  print_SerialDisplay("gps reading done.\n");*/
  
   print_SerialDisplay("Reading sensors...");
   //m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
@@ -320,7 +326,9 @@ void sendData() {
     print_SerialDisplay("\nmodem initialization failed.\n", 10000);
     goto shutdown;  
   }
-  print_SerialDisplay("\nmodem initialization done.\n"); 
+  
+  print_SerialDisplay("\nmodem initialization done.\n", 2000); 
+  print_SerialDisplay("Sending data....\n");
   
   if (!sendCommand("AT+CSQ\r")) goto shutdown;   
   if (!sendCommand("AT+CREG?\r")) goto shutdown;    
@@ -336,7 +344,8 @@ void sendData() {
   if (!sendCommand(cmd)) goto shutdown;    
   if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) goto shutdown;    
   
-  snprintf(msg, sizeof(line), "{\"content\":\"%s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
+  snprintf(msg, sizeof(msg), "{\"content\":\"~%s %s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
+    drifterName, 
     data[0], data[1], data[2], data[3], data[4], data[5],
     data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
   snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(msg));
@@ -347,9 +356,9 @@ void sendData() {
   
   if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
     delay(5000);
-    print_SerialDisplay("\nData sent succesfully.\n", 5000);
+    print_SerialDisplay("\ndata sent succesfully.\n", 5000);
   }
-  else print_SerialDisplay("\nData sending failed.\n", 10000);
+  else print_SerialDisplay("\ndata sending failed.\n", 10000);
 
   
   shutdown:  

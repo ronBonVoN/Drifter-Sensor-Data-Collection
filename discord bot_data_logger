@@ -1,0 +1,100 @@
+import discord            # to interact with Discord API
+from datetime import datetime
+import os 
+from dotenv import load_dotenv 
+
+# load variables from hidden .env file
+load_dotenv()
+# bot's token (!keep secret!)
+TOKEN = os.getenv("TOKEN")
+# Discord channel IDs
+TEST_CHL = 1401922482713264160 
+FIELD_CHL = 1403400570806468718 
+FILES_CHL = 1403400656017948793 
+
+# intents your bot needs
+intents = discord.Intents.default()
+intents.message_content = True 
+
+client = discord.Client(intents=intents) #client instance of the bot
+
+@client.event
+async def on_message(message):   
+    if message.channel.id != FILES_CHL: # ignore messages outside this channel
+        return 
+    
+    if message.author == client.user:
+        return
+    
+    bot_channel = client.get_channel(FILES_CHL)
+    
+    if message.content.startswith("Create file:"): 
+        lines = message.content.split('\n')
+        if len(lines) == 5:
+            channel_name = lines[1]
+            name = lines[2]
+            start_str = lines[3]
+            end_str = lines[4]
+
+        else: 
+            await bot_channel.send("Incorrect number of lines.")
+            return
+    else: 
+        return 
+    
+    try: 
+        start_date = datetime.strptime(start_str, "%Y-%m-%d")
+        end_date = datetime.strptime(end_str, "%Y-%m-%d")
+    except ValueError: 
+        await bot_channel.send("Incorrect date format.")
+        return
+    
+    if start_date == end_date: 
+        await bot_channel.send("Start and end date cannot be the same.")
+        return
+    
+    if start_date > end_date: 
+        await bot_channel.send("Start and end date must be cronilogical.")
+        return
+    
+    if channel_name == "testing":
+        read_channel = client.get_channel(TEST_CHL)
+    elif channel_name == "field-data":
+        read_channel = client.get_channel(FIELD_CHL)
+    else:
+        await bot_channel.send("Incorrect channel name.")
+        return 
+    
+    messages = []
+    async for message in read_channel.history(after=start_date, before=end_date, oldest_first=True):
+        messages.append(message)
+    
+    for msg in messages:
+        if not msg.content.startswith(f"~{name}"): 
+            try: 
+                await msg.delete()
+            except: 
+                await bot_channel.send("Error formating file.")
+                break
+
+        try: 
+            new_content = msg.content[len(f"~{name}"):].lstrip().replace(" ", "\t")
+            await msg.edit(content=new_content)
+        except: 
+            await bot_channel.send("Error formating file.")
+            break          
+    
+    file_name = f"{name}_{start_date.strftime('%Y.%m.%d')}_{end_date.strftime('%Y.%m.%d')}.txt"
+    
+    with open(file_name, "w", encoding="utf-8") as f:
+        for msg in messages:
+            f.write(msg.content + "\n")
+    
+    await bot_channel.send(file=discord.File(file_name))
+
+    if os.path.exists(file_name):
+        os.remove(file_name)
+
+
+client.run(TOKEN)
+#Ctrl + C in terminal ends task 
