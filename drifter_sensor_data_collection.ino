@@ -287,6 +287,7 @@ void sleepArduino() {
     wdt_enable(WDTO_8S);
 }
 
+//for sending modem commands
 bool sendCommand(const char* cmd, const char* res = "OK", int wait = 10000) {
   MODEM_SERIAL.print(cmd);
   outputModem[0] = '\0'; 
@@ -312,8 +313,8 @@ bool sendCommand(const char* cmd, const char* res = "OK", int wait = 10000) {
 }
 
 void sendData() {
-  print_SerialDisplay("Initializing modem...\n\n"); 
-  
+  print_SerialDisplay("Initializing modem...\n\n");  
+  //power-key button needed to start modem
   pinMode(MODEM_PWK, OUTPUT);
   digitalWrite(MODEM_PWK, LOW);
   delay(3000); 
@@ -327,42 +328,41 @@ void sendData() {
   if (!sendCommand("AT\r")) {
     print_SerialDisplay("\nmodem initialization failed.\n", 10000);
     goto shutdown;  
-  }
-  
+  } 
   print_SerialDisplay("\nmodem initialization done.\n", 2000); 
   print_SerialDisplay("Sending data....\n");
   
+  //commands to prep for sending data to url 
   if (!sendCommand("AT+CSQ\r")) goto shutdown;   
   if (!sendCommand("AT+CREG?\r")) goto shutdown;    
   if (!sendCommand("AT+CGDCONT=1,\"IP\",\"m2mglobal\"\r")) goto shutdown;    
   if (!sendCommand("AT+CGATT=1\r")) goto shutdown;    
   if (!sendCommand("AT+CGACT=1,1\r")) goto shutdown;    
-  sendCommand("AT+HTTPTERM\r", "AT+HTTPTERM");  
+       sendCommand("AT+HTTPTERM\r", "AT+HTTPTERM");  
   if (!sendCommand("AT+HTTPINIT\r")) goto shutdown;     
   if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) goto shutdown;     
-  
-  snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"\r", url);
-  
-  if (!sendCommand(cmd)) goto shutdown;    
+       snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"\r", url);
+  if (!sendCommand(cmd)) goto shutdown;
   if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) goto shutdown;    
   
+  //creating message to send
   snprintf(msg, sizeof(msg), "{\"content\":\"~%s %s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
     drifterName, 
     data[0], data[1], data[2], data[3], data[4], data[5],
     data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
-  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(msg));
   
+  //sending message
+  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(msg));
   if (!sendCommand(cmd, "DOWNLOAD")) goto shutdown;    
   if (!sendCommand(msg)) goto shutdown; 
-  delay(5000);
-  
+  delay(5000); 
   if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
     delay(5000);
     print_SerialDisplay("\ndata sent succesfully.\n", 5000);
   }
   else print_SerialDisplay("\ndata sending failed.\n", 10000);
-
   
+  //prep for shutdown 
   shutdown:  
     print_SerialDisplay("\nModem shutdown...\n");
     delay(5000);
