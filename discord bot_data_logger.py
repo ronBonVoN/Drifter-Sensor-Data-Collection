@@ -90,8 +90,11 @@ async def on_message(message):
     for i in range(len(file_content)):
         try: 
             file_content[i] = file_content[i][len(f"~{name}"):].lstrip() # clear ~name 
+            file_content[i] = '\t'.join(file_content[i].split())
+            ''''
+            file_content[i] = file_content[i].replace("   ", "\t")
             file_content[i] = file_content[i].replace("  ", "\t")        # replace douple space with tab character
-            file_content[i] = file_content[i].replace(" ", "\t")         # replace single space with tab character 
+            file_content[i] = file_content[i].replace(" ", "\t")         # replace single space with tab character '''
         except: 
             msgs_formatted -= 1
             
