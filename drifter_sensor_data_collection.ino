@@ -5,15 +5,12 @@ Kilroy was here
 
 /*to-do
  ask abt units
- ask sarah for code
- make bots
- new power
  add bools display and led 
 */
 
 //change for testing 
-#define SLEEP_LOOPS 2 // 86 = ~10mins
-#define GPS_READ_MILLIS 5000 //180000 = 3mins 
+#define SLEEP_LOOPS 86 // 86 = ~10mins
+#define GPS_READ_MILLIS 180000 //180000 = 3mins 
 
 #define I2C_ADDRESS (0x67)
 #define SCREEN_ADDRESS (0x3C)
@@ -23,6 +20,7 @@ Kilroy was here
 #define SCREEN_HEIGHT 64
 #define OLED_RESET 2
 #define RELAY_PIN 4
+#define LED_PIN 12
 #define SDCHIP_SELECT 53
 #define MODEM_PWK 9 
 #define MODEM_RST 7 
@@ -51,15 +49,15 @@ TinyGPSPlus gps;
 TinyGsm modem(MODEM_SERIAL); //cellular communication module
 
 // customizable vars
-const char fileName[13] = "DATA.txt"; 
 const char drifterName[20] = "Kilroy"; 
+const char fileName[13] = "DATA.txt"; 
 const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
     // for testing -> "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj"
     // for field   -> "https://discordapp.com/api/webhooks/1403412309438627851/RdeuTCbLB5Ul039usaiiCX5YhAeQGqdQAo4tfQz-Igut3GvUrKP22cAfCnrDrNmX5mA6"
 
 // change for testing 
 short displayCount = 100; //# of cycles display will run
-const bool serialEnable = 1; 
+const bool serialEnable = 0; 
 
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 short i;             //for intexing Modem output 
@@ -106,7 +104,9 @@ void setup() {
   digitalWrite(RELAY_PIN, HIGH); 
   delay(2000); 
   
-  initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display");
+  pinMode(LED_PIN, OUTPUT); 
+
+  if (displayCount>0) initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display");
   initialize(mcp.begin(I2C_ADDRESS), "thermocouple"); 
   initialize(SD.begin(SDCHIP_SELECT), "SD card"); 
   
@@ -127,22 +127,22 @@ void loop() {
     firstRun = 0;
   }
 
-/*  print_SerialDisplay("Reading gps..."); 
+  print_SerialDisplay("Reading gps..."); 
   start = millis();
   do{
       while (GPS_SERIAL.available())
       gps.encode(GPS_SERIAL.read()); 
   } while (millis()-start < GPS_READ_MILLIS); //3mins 
-  print_SerialDisplay("gps reading done.\n");*/
+  print_SerialDisplay("gps reading done.\n");
  
   print_SerialDisplay("Reading sensors...");
-  //m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
-  //hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
-  //adjustTime(); //adjust time zone 
-  //lat = gps.location.lat(); lng = gps.location.lng(); 
-  //speed = gps.speed.mps(); heading = gps.course.deg(); 
-  //tempHot = mcp.readThermocouple(); 
-  //tempCold = mcp.readAmbient();
+  m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
+  hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
+  adjustTime(); //adjust time zone 
+  lat = gps.location.lat(); lng = gps.location.lng(); 
+  speed = gps.speed.mps(); heading = gps.course.deg(); 
+  tempHot = mcp.readThermocouple(); 
+  tempCold = mcp.readAmbient();
   turbidity = analogRead(TURBIDITY_PIN) * (5.0/1024.0); //reads voltage  
   print_SerialDisplay("sensor reading done.\n"); 
 
@@ -232,6 +232,27 @@ void initialize(bool x, const char* sensor) {
     snprintf(line, sizeof(line), "%s failed\n", sensor);
     print_SerialDisplay(line, 10000); //moves on after 10secs if sensor failed 
   }
+}
+
+void status(const char* msg, unsigned short blink = 0, bool condition = 1) {
+  if (serialEnable) Serial.print(message); 
+  if (displayCount>0) {
+    display.clearDisplay(); 
+    display.setTextColor(WHITE); 
+    display.setTextSize(1); 
+    display.setCursor(0,20);
+    display.print(message); 
+    display.display();
+    delay(wait); 
+  if (condition) {
+    for (int i=0; i<blink; i++) {
+      digitalWrite(LED_PIN, HIGH); 
+      delay(200); 
+      digitalWrite(LED_PIN, LOW); 
+    } 
+  }
+}
+
 }
 
 void print_SerialFile(const char* message) {
@@ -330,7 +351,7 @@ void sendData() {
     goto shutdown;  
   } 
   print_SerialDisplay("\nmodem initialization done.\n", 2000); 
-  print_SerialDisplay("Sending data....\n");
+  print_SerialDisplay("Sending data...\n");
   
   //commands to prep for sending data to url 
   if (!sendCommand("AT+CSQ\r")) goto shutdown;   
@@ -367,7 +388,7 @@ void sendData() {
     print_SerialDisplay("\nModem shutdown...\n");
     delay(5000);
     sendCommand("AT+HTTPTERM\r");   
-    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\nmodem shutdown successfully.\n");
+    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\nmodem shutdown successfully.\n, 5000");
     else print_SerialDisplay("\nmodem shutdown failed.\n", 10000);
 }
 
