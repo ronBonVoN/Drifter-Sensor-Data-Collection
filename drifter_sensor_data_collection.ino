@@ -11,6 +11,10 @@ Kilroy was here
  add bools display and led 
 */
 
+//change for testing 
+#define SLEEP_LOOPS 2 // 86 = ~10mins
+#define GPS_READ_MILLIS 5000 //180000 = 3mins 
+
 #define I2C_ADDRESS (0x67)
 #define SCREEN_ADDRESS (0x3C)
 #define MCP9600_STATUS_OPEN (0x01)
@@ -22,8 +26,6 @@ Kilroy was here
 #define SDCHIP_SELECT 53
 #define MODEM_PWK 9 
 #define MODEM_RST 7 
-#define SLEEP_LOOPS 2 // 86 = ~10mins
-#define GPS_READ_MILLIS 5000 //180000 = 3mins 
 #define GPS_SERIAL Serial1
 #define MODEM_SERIAL Serial2
 #define TINY_GSM_MODEM_SIM7600
@@ -53,11 +55,11 @@ const char fileName[13] = "DATA.txt";
 const char drifterName[20] = "Kilroy"; 
 const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
     // for testing -> "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj"
-    // for field   -> "****"
+    // for field   -> "https://discordapp.com/api/webhooks/1403412309438627851/RdeuTCbLB5Ul039usaiiCX5YhAeQGqdQAo4tfQz-Igut3GvUrKP22cAfCnrDrNmX5mA6"
 
 // change for testing 
 short displayCount = 100; //# of cycles display will run
-const bool serialEnable = 0; 
+const bool serialEnable = 1; 
 
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
 short i;             //for intexing Modem output 

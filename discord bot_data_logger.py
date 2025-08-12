@@ -74,25 +74,30 @@ async def on_message(message):
     async for message in read_channel.history(after=start_date, before=end_date, oldest_first=True):
         num_channel_msgs += 1
         if message.content.startswith(f"~{name}"): 
-            file_content.append(message)
+            file_content.append(message.content)
             msgs_with_name += 1
 
     msgs_formatted = msgs_with_name
     
-    for msg in file_content:
+    for i in range(len(file_content)):
         try: 
-            new_content = msg.content[len(f"~{name}"):].lstrip().replace(" ", "\t")
-            await msg.edit(content=new_content)
+            file_content[i] = file_content[i][len(f"~{name}"):].lstrip()
+            file_content[i] = file_content[i].replace("  ", "\t")
+            file_content[i] = file_content[i].replace(" ", "\t")
         except: 
             msgs_formatted -= 1
             
-    await bot_channel.send(f"{num_channel_msgs} messages found\n{msgs_with_name} messages found with drifter name {name}\n{msgs_formatted} messages formatted to clear drifter name \"{name}\" and replace spaces with tabs (\\t)")          
+    await bot_channel.send(
+        f"{num_channel_msgs} messages found\n"
+        f"{msgs_with_name} messages found with DRIFTER_NAME \"{name}\"\n"
+        f"{msgs_formatted} messages formatted to clear DRIFTER_NAME \"{name}\" and replace spaces with tabs (\\t)"
+    )          
     
     file_name = f"{name}_{start_date.strftime('%Y.%m.%d')}_{end_date.strftime('%Y.%m.%d')}.txt"
     
     with open(file_name, "w", encoding="utf-8") as f:
-        for msg in file_content:
-            f.write(msg.content + "\n")
+        for line in file_content:
+            f.write(line + "\n")
     
     await bot_channel.send(file=discord.File(file_name))
 
