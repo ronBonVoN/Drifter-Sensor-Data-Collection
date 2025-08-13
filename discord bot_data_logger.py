@@ -5,6 +5,7 @@
 
 import discord                  # to interact with Discord API
 from datetime import datetime   # for easy to use dates
+from datetime import timezone   # for utc to local timezone conversion 
 import os                       # for managing files
 from dotenv import load_dotenv  # for using .env file to store bot token
 
@@ -38,8 +39,8 @@ async def on_message(message):
         if len(lines) == 5:         # if there are 5 total lines in the message continue 
             channel_name = lines[1] # channel bot will read from 
             name = lines[2]         # name to look for in data 
-            start_str = lines[3]    # start date of messages to read from 
-            end_str = lines[4]      # end date when to stop reading messages 
+            start_str = lines[3]    # start time of messages to read from 
+            end_str = lines[4]      # end time when to stop reading messages 
 
         else: 
             await bot_channel.send("Incorrect number of lines.")
@@ -48,19 +49,19 @@ async def on_message(message):
         await bot_channel.send("Read channel description to find how to correctly format a command to create a .txt data file.")
         return 
     
-    try: #if dates are formated correctly (YYYY-MM-DD) continue 
-        start_date = datetime.strptime(start_str, "%Y-%m-%d")
-        end_date = datetime.strptime(end_str, "%Y-%m-%d")
+    try: #if dates are formated correctly (MM-DD-YYYY HH:MM:SS) continue 
+        start_time = datetime.strptime(start_str, "%m-%d-%Y %H:%M:%S")
+        end_time = datetime.strptime(end_str, "%m-%d-%Y %H:%M:%S")
     except ValueError: 
-        await bot_channel.send("Incorrect date format.")
+        await bot_channel.send("Incorrect time format.")
         return
     
-    if start_date == end_date: # if start and end date are the same stop 
-        await bot_channel.send("Start and end date cannot be the same.")
+    if start_time == end_time: # if start and end date are the same stop 
+        await bot_channel.send("Start and end time cannot be the same.")
         return
     
-    if start_date > end_date:  # if start date is after end date stop 
-        await bot_channel.send("Start and end date must be cronilogical.")
+    if start_time > end_time:  # if start date is after end date stop 
+        await bot_channel.send("Start and end time must be cronilogical.")
         return
     
     # if channel name is "testing" or "field data" set up reading from that channel 
@@ -77,11 +78,16 @@ async def on_message(message):
     msgs_with_name = 0     # number of messages found between start and end date that contain name
     msgs_formatted = 0     # number of messages succesfully formatted 
     
-    # read from desired channel between start and end date and store all messages that contain ~name
-    async for message in read_channel.history(after=start_date, before=end_date, oldest_first=True):
+    # read from desired channel between start and end date (discord uses UTC time) 
+    # and store all messages that contain ~name
+    async for message in read_channel.history(after=start_time.astimezone(timezone.utc), before=end_time.astimezone(timezone.utc), oldest_first=True, limit=None):
         num_channel_msgs += 1 
         if message.content.startswith(f"~{name}"): 
-            file_content.append(message.content)
+            file_content.append(
+                
+                f"{message.created_at.replace(tzinfo=timezone.utc).astimezone().strftime('%m-%d-%Y %H:%M:%S')} "
+                f"{message.content}"
+            )
             msgs_with_name += 1
 
     msgs_formatted = msgs_with_name
@@ -89,12 +95,10 @@ async def on_message(message):
     # format stored messages 
     for i in range(len(file_content)):
         try: 
-            file_content[i] = file_content[i][len(f"~{name}"):].lstrip() # clear ~name 
-            file_content[i] = '\t'.join(file_content[i].split())
-            ''''
-            file_content[i] = file_content[i].replace("   ", "\t")
-            file_content[i] = file_content[i].replace("  ", "\t")        # replace douple space with tab character
-            file_content[i] = file_content[i].replace(" ", "\t")         # replace single space with tab character '''
+            # clear ~name 
+            file_content[i] = file_content[i].replace(f"~{name}", "")
+            # replace any consecutive spaces with tab character
+            file_content[i] = '\t'.join(file_content[i].split()) 
         except: 
             msgs_formatted -= 1
             
@@ -106,7 +110,11 @@ async def on_message(message):
     )          
     
     # file name = name_YYYY-MM-DD(start)_YYYY-MM-DD(end)
-    file_name = f"{name}_{start_date.strftime('%Y.%m.%d')}_{end_date.strftime('%Y.%m.%d')}.txt"
+    file_name = (
+        f"{name}_"
+        f"{start_time.strftime('%m%d%Y')}_{start_time.strftime('%H%M%S')}_"
+        f"{end_time.strftime('%m%d%Y')}_{end_time.strftime('%H%M%S')}.txt"
+    )
     
     # write formatted list to a temporary file 
     with open(file_name, "w", encoding="utf-8") as f:
