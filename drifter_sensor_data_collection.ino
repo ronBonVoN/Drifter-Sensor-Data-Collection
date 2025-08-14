@@ -5,8 +5,6 @@ Kilroy was here
 
 /*to-do
  ask abt units
- add bools display and led 
- add time to LED
  add heading send 
 */
 
@@ -14,7 +12,7 @@ Kilroy was here
 #define TIME_ADJUST 4 //num hrs time difference to utc time, pos/neg if utc is ahead/behind
 
 //change for testing 
-#define SLEEP_LOOPS 87 // 86 = ~10mins
+#define SLEEP_LOOPS 87 // 86 = ~10mins (87)
 #define GPS_READ_MILLIS 180000 //180000 = 3mins 
 
 #define I2C_ADDRESS (0x67)
@@ -27,10 +25,10 @@ Kilroy was here
 #define RELAY_PIN 4
 #define LED_PIN 12
 #define SDCHIP_SELECT 53
-#define MODEM_PWK 9 
-#define MODEM_RST 7 
+#define CELL_PWK 9 
+#define CELL_RST 7 
 #define GPS_SERIAL Serial1
-#define MODEM_SERIAL Serial2
+#define CELL_SERIAL Serial2
 #define TINY_GSM_MODEM_SIM7600
 
 #include <SD.h>
@@ -47,19 +45,18 @@ Kilroy was here
 #include <avr/power.h>
 #include <avr/interrupt.h>
 #include <TinyGsmClient.h>
-//#include <math.h>
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Adafruit_MCP9600 mcp; //thermocouple
 TinyGPSPlus gps;
-TinyGsm modem(MODEM_SERIAL); //cellular communication module
+TinyGsm modem(CELL_SERIAL); //cellular communication module
 
 // customizable vars
 const char drifterName[20] = "Kilroy2.0"; 
 const char fileName[13] = "DATA.txt"; 
 const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
-    // for testing -> "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj"
-    // for field   -> "https://discordapp.com/api/webhooks/1403412309438627851/RdeuTCbLB5Ul039usaiiCX5YhAeQGqdQAo4tfQz-Igut3GvUrKP22cAfCnrDrNmX5mA6"
+      // for testing -> "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj"
+      // for field   -> "https://discordapp.com/api/webhooks/1403412309438627851/RdeuTCbLB5Ul039usaiiCX5YhAeQGqdQAo4tfQz-Igut3GvUrKP22cAfCnrDrNmX5mA6"
 
 // change for testing 
 short displayCount = 200; //# of cycles display will run
@@ -67,16 +64,16 @@ short LEDcount = 200;
 const bool serialEnable = 0; 
 
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
-short i;             //for intexing Modem output 
+short i;             //for indexing
 unsigned long start; //for millis() while loops
-unsigned long now;   //for millis() while loops
+unsigned long now;   //for millis() gps while loop
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
-char c;             //for reading Modem output
+char c;             //for reading cellular module output
 char line[150];     // for general writing/printing
-char cmd[200];     // for building modem commands 
-char msg[200];     // for building modem message command 
-char data[13][15]; // where sensor data will go
-char outputModem[512];
+char cmd[200];      // for building cellular module commands 
+char msg[200];      // for building cellular module message command 
+char data[13][15];  // where sensor data will go
+char outputCell[512]; 
 bool firstRun = 1; 
 volatile bool shouldWake = false;
 
@@ -100,13 +97,13 @@ void print_SerialDisplay(const char* message, int wait = 0) {
 
 void blink(unsigned short num, unsigned int wait=2000) {
   if (LEDcount>0) {
-    for (int i=0; i<num; i++) {
+    for (i=0; i<num; i++) {
       digitalWrite(LED_PIN, HIGH); 
       delay(500); 
       digitalWrite(LED_PIN, LOW); 
-      if (wait>0 && num > 1) delay(500); 
+      if (wait!=0 && num != 1) delay(500); 
     }
-    if (wait>0) delay(wait);
+    delay(wait);
   } 
 }
 
@@ -114,7 +111,7 @@ void setup() {
   delay(5000); //time for arduino to adjust if program resets 
   if (serialEnable) Serial.begin(115200);
   GPS_SERIAL.begin(9600); 
-  MODEM_SERIAL.begin(115200); 
+  CELL_SERIAL.begin(115200); 
   Wire.begin(); //for i2c com
   Wire.setClock(100000); //make i2c com slower  
   delay(5000); 
@@ -135,7 +132,7 @@ void setup() {
   if(initialize(SD.begin(SDCHIP_SELECT), "SD card")) blink(3); 
   
   //file heading
-  print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\n....\tEST/UTC\t....\t....\tmph\tdeg\tC\tC\tntu\n");
+  print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\n\tEST\t\t\tmph\tdeg\tC\tC\tvolts\n");
 }
 
 void loop() {
@@ -169,22 +166,22 @@ void loop() {
   print_SerialDisplay("Reading sensors...");
   m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
   hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
-  if (m!=0 && d!=0 && y!=2000 && hr!=0 && min!=0 && sec!=0) {
+  if (!(m<=0 && d<=0 && y<=2000 && hr<=0 && min<=0 && sec<=0)) {
     blink(1);
   }
   adjustTime(); //adjust time zone  
   lat = gps.location.lat(); lng = gps.location.lng(); 
-  if (lat!=0 && lng!=0) {
+  if (lat!=0 && lng!=0 && lat!=-1 && lng!=-1) {
     blink(2); 
   }
   speed = gps.speed.mps(); heading = gps.course.deg(); 
   tempHot = mcp.readThermocouple(); 
   tempCold = mcp.readAmbient();
-  if ((tempHot == tempHot) && (tempCold == tempCold)) {
+  if ((tempHot == tempHot) && (tempCold == tempCold) && tempCold!=-1 && tempHot!=-1) {
     blink(3);
   }
   turbidity = analogRead(TURBIDITY_PIN) * (5.0/1024.0); //reads voltage  
-  if (turbidity!=0 & turbidity!=5) {
+  if (!(turbidity<=0) && !(turbidity>=5)) {
     blink(4); 
   }
   print_SerialDisplay("sensor reading done.\n"); 
@@ -210,7 +207,10 @@ void loop() {
     data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
   print_SerialFile(line); 
 
-  sendData(); //send data to url through modem
+  if (sendData()) { //send data to url through cellular module
+    if (displayCount>0) blink(5);
+    else blink(5,0); 
+  }
 
   if (displayCount>0) {
     display.clearDisplay(); 
@@ -251,14 +251,13 @@ void loop() {
   power_spi_disable(); power_twi_disable(); //turning off spi and i2c comunication 
   wdt_reset(); delay(2000); 
 
- // digitalWrite(LED_PIN, LOW); 
-  for(int i=0; i<SLEEP_LOOPS; i++) { //around 10mins (adjusted # of loops from testing)
+  digitalWrite(RELAY_PIN, LOW);
+  for(i=0; i<SLEEP_LOOPS; i++) { //around 10mins (adjusted # of loops from testing)
     blink(1,0); 
     wdt_reset(); 
     sleepArduino(); //puts arduino into a low power mode (~8secs)
   }
   wdt_reset(); digitalWrite(RELAY_PIN, HIGH); wdt_reset(); 
- // digitalWrite(LED_PIN, HIGH); 
 
   power_spi_enable(); power_twi_enable(); //turn spi and i2c back on 
   wdt_reset(); delay(2000); 
@@ -301,11 +300,11 @@ void print_SerialFile(const char* message) {
 
 void adjustTime() {
   //shows etc time between 4/1->10/31 when utc time is 4hr difference. otherwise will show utc time. 
-  if (hr!=0 && min!=0 && sec!=0) {
+  if (!(hr<=0 && min<=0 && sec<=0)) {
     if (hr >= TIME_ADJUST)  hr -= TIME_ADJUST; 
     else {
-      hr += 24 - TIME_ADJUST;
-      if (m!=0 && d!=0 && y!=2005) d-=1; 
+      hr += 24 - TIME_ADJUST; 
+      if (!(m<=0 && d<=0 && y<=2000)) d-=1; 
       else return; 
     }   
   }
@@ -325,7 +324,6 @@ void adjustTime() {
         break;
     }
   }
-
 }
 
 void sleepArduino() {
@@ -343,22 +341,22 @@ void sleepArduino() {
     wdt_enable(WDTO_8S);
 }
 
-//for sending modem commands
+//for sending cellular module commands
 bool sendCommand(const char* cmd, const char* res = "OK", unsigned int wait = 10000) {
-  MODEM_SERIAL.print(cmd);
-  outputModem[0] = '\0'; 
+  CELL_SERIAL.print(cmd);
+  outputCell[0] = '\0'; 
   start = millis(); 
   while (millis() - start < wait) {    
-    while (MODEM_SERIAL.available()) {
-      c =  MODEM_SERIAL.read();
+    while (CELL_SERIAL.available()) {
+      c =  CELL_SERIAL.read();
       if (serialEnable) Serial.write(c);
-      i = strlen(outputModem); 
-      if (i < sizeof(outputModem)-1) {
-        outputModem[i] = c; 
-        outputModem[i + 1] = '\0'; 
+      i = strlen(outputCell); 
+      if (i < sizeof(outputCell)-1) {
+        outputCell[i] = c; 
+        outputCell[i + 1] = '\0'; 
       }
     } 
-     if (strstr(outputModem, res)) return 1; 
+     if (strstr(outputCell, res)) return 1; 
   }
   if (serialEnable) {
     Serial.print(cmd); 
@@ -368,14 +366,16 @@ bool sendCommand(const char* cmd, const char* res = "OK", unsigned int wait = 10
   return 0; 
 }
 
-void sendData() {
-  print_SerialDisplay("Initializing modem...\n\n");  
+bool sendData() {
+  bool success = 0; 
+  
+  print_SerialDisplay("Initializing cellular module...\n\n");  
   digitalWrite(LED_PIN, HIGH); 
-  //power-key button needed to start modem
-  pinMode(MODEM_PWK, OUTPUT);
-  digitalWrite(MODEM_PWK, LOW);
+  //power-key button needed to start cellular module
+  pinMode(CELL_PWK, OUTPUT);
+  digitalWrite(CELL_PWK, LOW);
   delay(3000); 
-  digitalWrite(MODEM_PWK, HIGH); 
+  digitalWrite(CELL_PWK, HIGH); 
   delay(3000); 
   
   start = millis(); 
@@ -383,7 +383,7 @@ void sendData() {
     if (sendCommand("AT\r")) break; 
   } 
   if (!sendCommand("AT\r")) {
-    print_SerialDisplay("\nmodem initialization failed.\n", 10000);
+    print_SerialDisplay("\ncullular module initialization failed.\n", 10000);
     goto shutdown;  
   } 
   print_SerialDisplay("Sending data...\n");
@@ -416,18 +416,19 @@ void sendData() {
   if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
     delay(5000); 
     print_SerialDisplay("\ndata sent succesfully.\n", 5000);
-    blink(5,0); 
+    success = 1;
   }
   else print_SerialDisplay("\ndata sending failed.\n", 10000);
   
   //prep for shutdown 
   shutdown:  
-    print_SerialDisplay("\nModem shutdown...\n");
+    print_SerialDisplay("\nCellular module shutdown...\n");
     if (digitalRead(LED_PIN)) digitalWrite(LED_PIN, LOW); 
     delay(5000);
     sendCommand("AT+HTTPTERM\r");   
-    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\nmodem shutdown successfully.\n, 5000");
-    else print_SerialDisplay("\nmodem shutdown failed.\n", 10000);
+    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\ncellular module shutdown successfully.\n, 5000");
+    else print_SerialDisplay("\ncellular module shutdown failed.\n", 10000);
+    return success; 
 }
 
 
