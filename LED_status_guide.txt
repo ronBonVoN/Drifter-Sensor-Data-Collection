@@ -5,6 +5,9 @@ _____________________________________
 1	          display initialized 
 2	          thermocouple initialized
 3                 SD card initialized
+solid (max~2mins) cellular initializing 
+off               cellular sending data
+4                 cellular sent data successfully          
 _____________________________________
 loop
 _____________________________________
@@ -13,7 +16,7 @@ rapid (3mins)     gps reading
 2                 logical lat and lng from gps 
 3                 valid temperature(s) from thermocouple 
 4                 turbidity voltage is between but not equal to 0 and 5
-solid             cellular initializing 
+solid (max~2mins) cellular initializing 
 off               cellular sending data
 5                 cellular sent data successfully 
 slow              Arduino in sleep mode 

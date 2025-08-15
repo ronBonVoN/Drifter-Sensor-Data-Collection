@@ -79,26 +79,43 @@ async def on_message(message):
     msgs_formatted = 0     # number of messages succesfully formatted 
     
     # read from desired channel between start and end date (discord uses UTC time) 
-    # and store all messages that contain ~name
+    # and store all messages that contain ~name or ^name
     async for message in read_channel.history(after=start_time.astimezone(timezone.utc), before=end_time.astimezone(timezone.utc), oldest_first=True, limit=None):
         num_channel_msgs += 1 
+        
         if message.content.startswith(f"~{name}"): 
-            file_content.append(
-                
-                f"{message.created_at.replace(tzinfo=timezone.utc).astimezone().strftime('%m-%d-%Y %H:%M:%S')} "
-                f"{message.content}"
-            )
             msgs_with_name += 1
+            try: 
+                #add Discord date and time 
+                file_content.append(
+                    f"{message.created_at.replace(tzinfo=timezone.utc).astimezone().strftime('%m-%d-%Y %H:%M:%S')} "
+                    f"{message.content}"
+                )
+            except: 
+                msgs_formatted -= 1
+       
+        if message.content.startswith(f"^{name}"):    
+            msgs_with_name += 1          
+            # if message countains dash (-) add Discord date and time headings 
+            try: 
+                file_content.append(f"Discord+Date Discord+Time {message.content}")
+            except: 
+                msgs_formatted -= 1
 
-    msgs_formatted = msgs_with_name
+    
+    time_zone = datetime.now().astimezone().strftime("%Z") or datetime.now().astimezone().tzname() or "LOCAL"
     
     # format stored messages 
     for i in range(len(file_content)):
         try: 
-            # clear ~name 
-            file_content[i] = file_content[i].replace(f"~{name}", "")
-            # replace any consecutive spaces with tab character
+            # clear ~name or ^name
+            file_content[i] = file_content[i].replace(f"~{name} ", "").replace(f"^{name} ", "")
+            # replace any spaces or consecutive spaces with tab character
             file_content[i] = '\t'.join(file_content[i].split()) 
+            #replace plus with space
+            file_content[i] = file_content[i].replace("+", " ")
+            # replace (newline) with newline and tab characters 
+            file_content[i] = file_content[i].replace("(newline)", f"\n{time_zone}\t{time_zone}\t")
         except: 
             msgs_formatted -= 1
             
@@ -106,7 +123,7 @@ async def on_message(message):
     await bot_channel.send(
         f"{num_channel_msgs} messages found\n"
         f"{msgs_with_name} messages found with DRIFTER_NAME \"{name}\"\n"
-        f"{msgs_formatted} messages formatted to clear DRIFTER_NAME \"{name}\" and replace spaces with tabs (\\t)"
+        f"{msgs_formatted} messages formatted to add Discord time, clear DRIFTER_NAME \"{name}\", and add tabs or newlines"
     )          
     
     # file name = name_YYYY-MM-DD(start)_YYYY-MM-DD(end)

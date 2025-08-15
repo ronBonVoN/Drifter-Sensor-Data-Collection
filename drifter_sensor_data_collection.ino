@@ -8,10 +8,8 @@ Kilroy was here
  add heading send 
 */
 
-//customizable 
-#define TIME_ADJUST 4 //num hrs time difference to utc time, pos/neg if utc is ahead/behind
-
 //change for testing 
+
 #define SLEEP_LOOPS 87 // 86 = ~10mins (87)
 #define GPS_READ_MILLIS 180000 //180000 = 3mins 
 
@@ -57,6 +55,7 @@ const char fileName[13] = "DATA.txt";
 const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
       // for testing -> "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj"
       // for field   -> "https://discordapp.com/api/webhooks/1403412309438627851/RdeuTCbLB5Ul039usaiiCX5YhAeQGqdQAo4tfQz-Igut3GvUrKP22cAfCnrDrNmX5mA6"
+short timeAdjust = -4; //num hrs time difference to utc time, pos/neg if utc is behind/ahead
 
 // change for testing 
 short displayCount = 200; //# of cycles display will run
@@ -74,6 +73,7 @@ char cmd[200];      // for building cellular module commands
 char msg[200];      // for building cellular module message command 
 char data[13][15];  // where sensor data will go
 char outputCell[512]; 
+short monthDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}; //for adjusting timezone
 bool firstRun = 1; 
 volatile bool shouldWake = false;
 
@@ -132,7 +132,19 @@ void setup() {
   if(initialize(SD.begin(SDCHIP_SELECT), "SD card")) blink(3); 
   
   //file heading
-  print_SerialFile("Date\tTime\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\n\tEST\t\t\tmph\tdeg\tC\tC\tvolts\n");
+  
+  snprintf(line, sizeof(line), "GPS Date\tGPS Time\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\nUTC%hdhrs\tUTC%hdhrs\tGCS\tGCS\tmph\tdeg\tC\tC\tvolts\n",
+  timeAdjust, timeAdjust);
+  print_SerialFile(line);
+
+  //creating heading message to send through cellular module 
+  snprintf(msg, sizeof(msg), "{\"content\":\"^%s GPS+Date GPS+Time Latitude Longitude Speed Heading Hot+Junction Cold+Junction Turbidity(newline)UTC%+hdhrs UTC%+hdhrs GCS GCS mph deg C C volts\"}",
+  drifterName, timeAdjust, timeAdjust);
+
+  if (sendData(msg)) {
+    if (displayCount>0) blink(4);
+    else blink(4,0); 
+  }
 }
 
 void loop() {
@@ -207,7 +219,13 @@ void loop() {
     data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
   print_SerialFile(line); 
 
-  if (sendData()) { //send data to url through cellular module
+  //creating data message to send through cellular module 
+  snprintf(msg, sizeof(msg), "{\"content\":\"~%s %s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
+  drifterName, 
+  data[0], data[1], data[2], data[3], data[4], data[5],
+  data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
+
+  if (sendData(msg)) { //send data to url through cellular module
     if (displayCount>0) blink(5);
     else blink(5,0); 
   }
@@ -293,35 +311,47 @@ void print_SerialFile(const char* message) {
   else { 
     wdt_disable();
     snprintf(line, sizeof(line), "Error opening %s\n", fileName);
-    blink(10); 
+    blink(10,0); 
     print_SerialDisplay(line, 10000); //moves on ater 10secs if file can't be writen to 
   }
 }
 
 void adjustTime() {
-  //shows etc time between 4/1->10/31 when utc time is 4hr difference. otherwise will show utc time. 
-  if (!(hr<=0 && min<=0 && sec<=0)) {
-    if (hr >= TIME_ADJUST)  hr -= TIME_ADJUST; 
-    else {
-      hr += 24 - TIME_ADJUST; 
-      if (!(m<=0 && d<=0 && y<=2000)) d-=1; 
-      else return; 
-    }   
-  }
-  if (d==0) {
-    m -=1; 
-    switch (m) {
-      case 4: case 6: case 9: case 11: 
-        d = 30;
-        break;
-      case 2: 
-        if ((y % 4 == 0) && (y % 100 != 0) || (y % 400 == 0)) {
-          d = 29; 
-        }
-        else d = 28; 
-      default:
-        d = 31;
-        break;
+  //adjusts timezone based on adjust amount varibale 
+  if (hr<=0 && min<=0 && sec<=0) return; 
+  else hr += timeAdjust; 
+
+  if (m<=0 && d<=0 && y<=2000) return; 
+  else {
+    if (hr<=0) {
+      hr = 24 + hr;
+      d -= 1 ;
+    } 
+    if (hr>=24) {
+      hr -= 24; 
+      d += 1; 
+    }
+
+    if ((y % 4 == 0) && (y % 100 != 0) || (y % 400 == 0)) monthDays[2-1] = 29;    
+    
+    if (d==0) {
+      m -= 1;
+      if (m>0) d = monthDays[m-1]; 
+      if (m==0) {
+        m = 12; 
+        d = monthDays[12-1]; 
+        y -= 1; 
+      }
+    }
+
+    if (d>monthDays[m-1]) {
+      m += 1;
+      if (m<=12) d = 1;
+      if (m==13) {
+        m = 1; 
+        d = 1; 
+        y += 1; 
+      }
     }
   }
 }
@@ -366,7 +396,7 @@ bool sendCommand(const char* cmd, const char* res = "OK", unsigned int wait = 10
   return 0; 
 }
 
-bool sendData() {
+bool sendData(const char* message) {
   bool success = 0; 
   
   print_SerialDisplay("Initializing cellular module...\n\n");  
@@ -401,17 +431,11 @@ bool sendData() {
   if (!sendCommand(cmd)) goto shutdown;
   if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) goto shutdown;    
   
-  //creating message to send
-  snprintf(msg, sizeof(msg), "{\"content\":\"~%s %s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
-    drifterName, 
-    data[0], data[1], data[2], data[3], data[4], data[5],
-    data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
-  
   //sending message
   digitalWrite(LED_PIN, LOW); 
-  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(msg));
+  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(message));
   if (!sendCommand(cmd, "DOWNLOAD")) goto shutdown;    
-  if (!sendCommand(msg)) goto shutdown; 
+  if (!sendCommand(message)) goto shutdown; 
   delay(5000); 
   if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
     delay(5000); 
