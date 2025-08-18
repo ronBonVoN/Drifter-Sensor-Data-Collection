@@ -6,12 +6,13 @@ Kilroy was here
 /*to-do
  ask abt units
  add heading send 
+ test SD ERROR sending 
 */
 
 //change for testing 
 
-#define SLEEP_LOOPS 87 // 86 = ~10mins (87)
-#define GPS_READ_MILLIS 180000 //180000 = 3mins 
+#define SLEEP_LOOPS 101 // 86 = ~10mins (87)
+#define GPS_READ_MILLIS 5000 //180000 = 3mins 
 
 #define I2C_ADDRESS (0x67)
 #define SCREEN_ADDRESS (0x3C)
@@ -75,6 +76,7 @@ char data[13][15];  // where sensor data will go
 char outputCell[512]; 
 short monthDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}; //for adjusting timezone
 bool firstRun = 1; 
+bool SDstatus = 1; 
 volatile bool shouldWake = false;
 
 //for interrupt watchdog
@@ -123,11 +125,7 @@ void setup() {
   digitalWrite(RELAY_PIN, HIGH); 
   delay(2000); 
 
-  if (displayCount>0) {
-    if(initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display")) {
-      blink(1); 
-    }
-  }
+  if (displayCount>0) if(initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display")) blink(1);
   if(initialize(mcp.begin(I2C_ADDRESS), "thermocouple")) blink(2); 
   if(initialize(SD.begin(SDCHIP_SELECT), "SD card")) blink(3); 
   
@@ -138,10 +136,10 @@ void setup() {
   print_SerialFile(line);
 
   //creating heading message to send through cellular module 
-  snprintf(msg, sizeof(msg), "{\"content\":\"^%s GPS+Date GPS+Time Latitude Longitude Speed Heading Hot+Junction Cold+Junction Turbidity(newline)UTC%+hdhrs UTC%+hdhrs GCS GCS mph deg C C volts\"}",
+  snprintf(msg, sizeof(msg), "{\"content\":\"^%s SD+Card+Status GPS+Date GPS+Time Latitude Longitude Speed Heading Hot+Junction Cold+Junction Turbidity(newline)bool UTC%+hdhrs UTC%+hdhrs GCS GCS mph deg C C volts\"}",
   drifterName, timeAdjust, timeAdjust);
 
-  if (sendData(msg)) {
+  if (sendCell(msg, "heading")) {
     if (displayCount>0) blink(4);
     else blink(4,0); 
   }
@@ -151,22 +149,16 @@ void loop() {
 /************************************************************ relay on ************************************************************/
   pinMode(RELAY_PIN, OUTPUT); 
   if (!firstRun) { //need to re-initialize sd card after relay shuts off, but dangerous to do twice during start up.
-    if (SD.begin(SDCHIP_SELECT)) {}
-    else {
-      print_SerialDisplay("SD card failed.\n", 10000); 
-    }
+    if (!SD.begin(SDCHIP_SELECT)) print_SerialDisplay("SD card failed\n", 10000); 
   }  
-  else {
-    firstRun = 0;
-  }
+  else firstRun = 0;
+
 
   print_SerialDisplay("Reading gps..."); 
   start = millis(); 
   now = millis(); 
   while (millis() - start < GPS_READ_MILLIS) {  //3mins
-    while (GPS_SERIAL.available()) {
-      gps.encode(GPS_SERIAL.read());
-    }
+    while (GPS_SERIAL.available()) gps.encode(GPS_SERIAL.read());
     if (millis() - now >= 300) { // need to use while() instead of delay() for
         now += 300;              // blinking during reading gps to not pause reading
         digitalWrite(LED_PIN, !digitalRead(LED_PIN)); // togel LED
@@ -178,35 +170,26 @@ void loop() {
   print_SerialDisplay("Reading sensors...");
   m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
   hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
-  if (!(m<=0 && d<=0 && y<=2000 && hr<=0 && min<=0 && sec<=0)) {
-    blink(1);
-  }
+  if (!(m<=0 && d<=0 && y<=2000 && hr<=0 && min<=0 && sec<=0)) /*<--------------->*/ blink(1);
   adjustTime(); //adjust time zone  
   lat = gps.location.lat(); lng = gps.location.lng(); 
-  if (lat!=0 && lng!=0 && lat!=-1 && lng!=-1) {
-    blink(2); 
-  }
-  speed = gps.speed.mps(); heading = gps.course.deg(); 
-  tempHot = mcp.readThermocouple(); 
-  tempCold = mcp.readAmbient();
-  if ((tempHot == tempHot) && (tempCold == tempCold) && tempCold!=-1 && tempHot!=-1) {
-    blink(3);
-  }
+  if (lat!=0 && lng!=0 && lat!=-1 && lng!=-1) /*<-------------------------------->*/ blink(2); 
+  speed = gps.speed.mps(); heading = gps.course.deg();  
+  tempHot = mcp.readThermocouple(); tempCold = mcp.readAmbient();
+  if ((tempHot == tempHot) && (tempCold == tempCold) && tempCold!=-1 && tempHot!=-1) blink(3);
   turbidity = analogRead(TURBIDITY_PIN) * (5.0/1024.0); //reads voltage  
-  if (!(turbidity<=0) && !(turbidity>=5)) {
-    blink(4); 
-  }
+  if (!(turbidity<=0) && !(turbidity>=5)) /*<------------------------------------>*/ blink(4); 
   print_SerialDisplay("sensor reading done.\n"); 
 
-  //writing floats to char array      ***size************ 
-  snprintf(data[0],  3, "%02d", m);   // MM\0
-  snprintf(data[1],  3, "%02d", d);   // DD\0
-  snprintf(data[2],  5, "%04d", y);   // YYYY\0
-  snprintf(data[3],  3, "%02d", hr);  // 00\0
-  snprintf(data[4],  3, "%02d", min); // 00\0
-  snprintf(data[5],  3, "%02d", sec); // 00\0
-  dtostrf(lat,      10, 8, data[6]); // -90.000000 -> _90.000000
-  dtostrf(lng,       10, 8, data[7]); // -90.000000 -> _90.000000
+  //writing floats to char array       ***size************ 
+  snprintf(data[0],  3, "%02d", m);    // MM\0
+  snprintf(data[1],  3, "%02d", d);    // DD\0
+  snprintf(data[2],  5, "%04d", y);    // YYYY\0
+  snprintf(data[3],  3, "%02d", hr);   // 00\0
+  snprintf(data[4],  3, "%02d", min);  // 00\0
+  snprintf(data[5],  3, "%02d", sec);  // 00\0
+  dtostrf(lat,      10,  8, data[6]);  // -90.000000 -> _90.000000
+  dtostrf(lng,       10, 8, data[7]);  // -90.000000 -> _90.000000
   dtostrf(speed,     5,  2, data[8]);  // 00.00
   dtostrf(heading,   6,  2, data[9]);  // __0.00 -> 360.00
   dtostrf(tempHot,   6,  2, data[10]); // -00.00 -> _00.00
@@ -215,17 +198,14 @@ void loop() {
 
   //printing data to file 
   snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-    data[0], data[1], data[2], data[3], data[4], data[5],
-    data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
+  data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
   print_SerialFile(line); 
 
   //creating data message to send through cellular module 
-  snprintf(msg, sizeof(msg), "{\"content\":\"~%s %s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
-  drifterName, 
-  data[0], data[1], data[2], data[3], data[4], data[5],
-  data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
+  snprintf(msg, sizeof(msg), "{\"content\":\"~%s %d %s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
+  drifterName, SDstatus, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
 
-  if (sendData(msg)) { //send data to url through cellular module
+  if (sendCell(msg, "data")) { //send data to url through cellular module
     if (displayCount>0) blink(5);
     else blink(5,0); 
   }
@@ -271,12 +251,11 @@ void loop() {
 
   digitalWrite(RELAY_PIN, LOW);
   for(i=0; i<SLEEP_LOOPS; i++) { //around 10mins (adjusted # of loops from testing)
-    blink(1,0); 
     wdt_reset(); 
     sleepArduino(); //puts arduino into a low power mode (~8secs)
   }
   wdt_reset(); digitalWrite(RELAY_PIN, HIGH); wdt_reset(); 
-
+  
   power_spi_enable(); power_twi_enable(); //turn spi and i2c back on 
   wdt_reset(); delay(2000); 
   print_SerialDisplay("out of sleep mode.\n"); wdt_disable(); delay(3000); 
@@ -286,7 +265,6 @@ void loop() {
 bool initialize(bool x, const char* sensor) {
   snprintf(line, sizeof(line), "Initializing %s...", sensor);
   print_SerialDisplay(line);
-  
   if(x) {
     snprintf(line, sizeof(line), "%s initialization done.\n", sensor);
     print_SerialDisplay(line);
@@ -304,15 +282,17 @@ void print_SerialFile(const char* message) {
   wdt_enable(WDTO_8S); //enabling watchdog, will reset arduino if wdt_reset() is not called in 8secs
   File dataFile = SD.open(fileName, FILE_WRITE);
   if (dataFile) {
+    SDstatus = 1; 
     dataFile.print(message);
     dataFile.close();
     wdt_disable();
   }
   else { 
+    SDstatus = 0; 
     wdt_disable();
-    snprintf(line, sizeof(line), "Error opening %s\n", fileName);
-    blink(10,0); 
-    print_SerialDisplay(line, 10000); //moves on ater 10secs if file can't be writen to 
+    snprintf(line, sizeof(line), "Error opening %s", fileName);
+    print_SerialDisplay(line, 10000);
+    blink(10); 
   }
 }
 
@@ -396,7 +376,7 @@ bool sendCommand(const char* cmd, const char* res = "OK", unsigned int wait = 10
   return 0; 
 }
 
-bool sendData(const char* message) {
+bool sendCell(const char* message, const char* reason) {
   bool success = 0; 
   
   print_SerialDisplay("Initializing cellular module...\n\n");  
@@ -413,10 +393,11 @@ bool sendData(const char* message) {
     if (sendCommand("AT\r")) break; 
   } 
   if (!sendCommand("AT\r")) {
-    print_SerialDisplay("\ncullular module initialization failed.\n", 10000);
+    print_SerialDisplay("\ncellular module initialization failed.\n", 10000);
     goto shutdown;  
   } 
-  print_SerialDisplay("Sending data...\n");
+  snprintf(line, sizeof(line), "Sending %s...\n", reason);
+  print_SerialDisplay(line);
   
   //commands to prep for sending data to url 
   if (!sendCommand("AT+CSQ\r")) goto shutdown;   
@@ -439,10 +420,14 @@ bool sendData(const char* message) {
   delay(5000); 
   if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
     delay(5000); 
-    print_SerialDisplay("\ndata sent succesfully.\n", 5000);
+    snprintf(line, sizeof(line), "%s sent successfully.\n", reason);
+    print_SerialDisplay(line, 5000);
     success = 1;
   }
-  else print_SerialDisplay("\ndata sending failed.\n", 10000);
+  else {
+    snprintf(line, sizeof(line), "%s sending failed.\n", reason);
+    print_SerialDisplay(line, 10000);
+  }
   
   //prep for shutdown 
   shutdown:  
@@ -450,10 +435,12 @@ bool sendData(const char* message) {
     if (digitalRead(LED_PIN)) digitalWrite(LED_PIN, LOW); 
     delay(5000);
     sendCommand("AT+HTTPTERM\r");   
-    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\ncellular module shutdown successfully.\n, 5000");
+    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\ncellular module shutdown successfully.\n", 5000);
     else print_SerialDisplay("\ncellular module shutdown failed.\n", 10000);
     return success; 
 }
+
+
 
 
 
