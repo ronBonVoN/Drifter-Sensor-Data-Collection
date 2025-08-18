@@ -19,7 +19,7 @@ rapid (3mins)     gps reading
 solid (max~2mins) cellular initializing 
 off               cellular sending data
 5                 cellular sent data successfully 
-slow              Arduino in sleep mode 
+off (long time)   Arduino in sleep mode 
 _____________________________________
 other
 _____________________________________
