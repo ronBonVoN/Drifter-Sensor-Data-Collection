@@ -4,15 +4,17 @@ Kilroy was here
 */
 
 /*to-do
- ask abt units
- add heading send 
- test SD ERROR sending 
+ test LED 
+ update led txt file 
+ upload to git 
+ improve cell cmds
+ fix 0 msgs
+ get rid of led count
 */
 
 //change for testing 
-
-#define SLEEP_LOOPS 101 // 86 = ~10mins (87)
-#define GPS_READ_MILLIS 5000 //180000 = 3mins 
+#define SLEEP_LOOPS 2 // 86 = ~10mins (87) (93)
+#define GPS_READ_MILLIS 10000 //180000 = 3mins 
 
 #define I2C_ADDRESS (0x67)
 #define SCREEN_ADDRESS (0x3C)
@@ -51,7 +53,7 @@ TinyGPSPlus gps;
 TinyGsm modem(CELL_SERIAL); //cellular communication module
 
 // customizable vars
-const char drifterName[20] = "Kilroy2.0"; 
+const char drifterName[20] = "Lumin"; 
 const char fileName[13] = "DATA.txt"; 
 const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
       // for testing -> "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj"
@@ -59,14 +61,13 @@ const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G
 short timeAdjust = -4; //num hrs time difference to utc time, pos/neg if utc is behind/ahead
 
 // change for testing 
-short displayCount = 200; //# of cycles display will run
-short LEDcount = 200; 
+short displayCount = 0; //# of cycles display will run
+short LEDcount = 10000; //# of cycles LED will run
 const bool serialEnable = 0; 
 
 short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
-short i;             //for indexing
-unsigned long start; //for millis() while loops
-unsigned long now;   //for millis() gps while loop
+short i;                  //for indexing
+unsigned long start, now; //for millis() while loops
 float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
 char c;             //for reading cellular module output
 char line[150];     // for general writing/printing
@@ -97,13 +98,13 @@ void print_SerialDisplay(const char* message, int wait = 0) {
   }
 }
 
-void blink(unsigned short num, unsigned int wait=2000) {
+void blink(unsigned short num, unsigned int wait=3000, unsigned int pause = 300) {
   if (LEDcount>0) {
     for (i=0; i<num; i++) {
       digitalWrite(LED_PIN, HIGH); 
-      delay(500); 
+      delay(pause); 
       digitalWrite(LED_PIN, LOW); 
-      if (wait!=0 && num != 1) delay(500); 
+      delay(pause); 
     }
     delay(wait);
   } 
@@ -130,7 +131,6 @@ void setup() {
   if(initialize(SD.begin(SDCHIP_SELECT), "SD card")) blink(3); 
   
   //file heading
-  
   snprintf(line, sizeof(line), "GPS Date\tGPS Time\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\nUTC%hdhrs\tUTC%hdhrs\tGCS\tGCS\tmph\tdeg\tC\tC\tvolts\n",
   timeAdjust, timeAdjust);
   print_SerialFile(line);
@@ -138,21 +138,18 @@ void setup() {
   //creating heading message to send through cellular module 
   snprintf(msg, sizeof(msg), "{\"content\":\"^%s SD+Card+Status GPS+Date GPS+Time Latitude Longitude Speed Heading Hot+Junction Cold+Junction Turbidity(newline)bool UTC%+hdhrs UTC%+hdhrs GCS GCS mph deg C C volts\"}",
   drifterName, timeAdjust, timeAdjust);
-
-  if (sendCell(msg, "heading")) {
-    if (displayCount>0) blink(4);
-    else blink(4,0); 
-  }
+  
+  if (sendCell(msg, "heading")) blink(4);
 }
 
 void loop() {
 /************************************************************ relay on ************************************************************/
   pinMode(RELAY_PIN, OUTPUT); 
+  
   if (!firstRun) { //need to re-initialize sd card after relay shuts off, but dangerous to do twice during start up.
     if (!SD.begin(SDCHIP_SELECT)) print_SerialDisplay("SD card failed\n", 10000); 
   }  
   else firstRun = 0;
-
 
   print_SerialDisplay("Reading gps..."); 
   start = millis(); 
@@ -205,10 +202,8 @@ void loop() {
   snprintf(msg, sizeof(msg), "{\"content\":\"~%s %d %s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
   drifterName, SDstatus, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
 
-  if (sendCell(msg, "data")) { //send data to url through cellular module
-    if (displayCount>0) blink(5);
-    else blink(5,0); 
-  }
+  if (sendCell(msg, "data")) blink(5); 
+  shutdownCell(); 
 
   if (displayCount>0) {
     display.clearDisplay(); 
@@ -216,7 +211,7 @@ void loop() {
     display.setTextSize(1); 
     snprintf(line, sizeof(line), "%s-%s-%s %s:%s:%s", data[0], data[1], data[2], data[3], data[4], data[5]); 
     display.setCursor(0,0);  display.print(line);                                                            
-    snprintf(line, sizeof(line), "lat:%s", data[6]);
+    snprintf(line, sizeof(line), "lat:%s", data[6]);                                                         
     display.setCursor(0,10); display.print(line);                                          
     snprintf(line, sizeof(line), "lng:%s", data[7]);                                              
     display.setCursor(0,20); display.print(line); 
@@ -235,30 +230,30 @@ void loop() {
     display.clearDisplay(); 
     display.display(); 
     display.ssd1306_command(SSD1306_DISPLAYOFF);
-    delay(2000); 
   }
   displayCount -= 1; 
   LEDcount -= 1; 
 
 /****************************************************** relay off, arduino sleep  ******************************************************/
-  //enabling watchdog, will reset arduino if wdt_reset() is not called in 8secs 
-  wdt_enable(WDTO_8S);           
+  print_SerialDisplay("Sleep mode..."); 
   
-  print_SerialDisplay("Entering sleep mode..."); 
-  wdt_reset(); 
-  power_spi_disable(); power_twi_disable(); //turning off spi and i2c comunication 
-  wdt_reset(); delay(2000); 
-
+  wdt_enable(WDTO_8S); //enabling watchdog, will reset arduino if wdt_reset() is not called in 8secs 
+  power_spi_disable(); //turn off spi com
+  power_twi_disable(); //turn off i2c com
   digitalWrite(RELAY_PIN, LOW);
-  for(i=0; i<SLEEP_LOOPS; i++) { //around 10mins (adjusted # of loops from testing)
-    wdt_reset(); 
-    sleepArduino(); //puts arduino into a low power mode (~8secs)
-  }
-  wdt_reset(); digitalWrite(RELAY_PIN, HIGH); wdt_reset(); 
+  wdt_disable();
+
+  blink(2,0,2000); 
+  for(i=0; i<SLEEP_LOOPS; i++) sleepArduino(); //puts arduino into a low power mode (~8secs) per loop 
+  blink(2,0,2000); 
   
-  power_spi_enable(); power_twi_enable(); //turn spi and i2c back on 
-  wdt_reset(); delay(2000); 
-  print_SerialDisplay("out of sleep mode.\n"); wdt_disable(); delay(3000); 
+  wdt_enable(WDTO_8S);
+  digitalWrite(RELAY_PIN, HIGH);  
+  delay(2000); 
+  power_spi_enable(); // turn on spi 
+  power_twi_enable(); // turn on i2c
+  wdt_disable();
+  print_SerialDisplay("out of sleep mode.\n"); 
 }
 
 /************************************************************* functions *************************************************************/
@@ -277,7 +272,7 @@ bool initialize(bool x, const char* sensor) {
   }
 }
 
-void print_SerialFile(const char* message) {
+void print_SerialFile(const char* message) { 
   if (serialEnable) Serial.print(message); 
   wdt_enable(WDTO_8S); //enabling watchdog, will reset arduino if wdt_reset() is not called in 8secs
   File dataFile = SD.open(fileName, FILE_WRITE);
@@ -288,11 +283,12 @@ void print_SerialFile(const char* message) {
     wdt_disable();
   }
   else { 
-    SDstatus = 0; 
     wdt_disable();
-    snprintf(line, sizeof(line), "Error opening %s", fileName);
-    print_SerialDisplay(line, 10000);
-    blink(10); 
+    SDstatus = 0; 
+    snprintf(line, sizeof(line), "Error opening %s\n", fileName);
+    print_SerialDisplay(line);
+    if (LEDcount>0) blink(10); 
+    else delay(10000); 
   }
 }
 
@@ -347,8 +343,6 @@ void sleepArduino() {
     sleep_enable();
     sleep_cpu();
     sleep_disable();
-    
-    wdt_enable(WDTO_8S);
 }
 
 //for sending cellular module commands
@@ -377,7 +371,7 @@ bool sendCommand(const char* cmd, const char* res = "OK", unsigned int wait = 10
 }
 
 bool sendCell(const char* message, const char* reason) {
-  bool success = 0; 
+  //message cannot have tabs or newlines
   
   print_SerialDisplay("Initializing cellular module...\n\n");  
   digitalWrite(LED_PIN, HIGH); 
@@ -390,54 +384,53 @@ bool sendCell(const char* message, const char* reason) {
   
   start = millis(); 
   while (millis()-start < 60000) {
-    if (sendCommand("AT\r")) break; 
+    if (sendCommand("AT\r")) break; //Basic communication test
   } 
   if (!sendCommand("AT\r")) {
     print_SerialDisplay("\ncellular module initialization failed.\n", 10000);
-    goto shutdown;  
+    return 0;   
   } 
-  snprintf(line, sizeof(line), "Sending %s...\n", reason);
+  snprintf(line, sizeof(line), "\nSending %s...\n", reason);
   print_SerialDisplay(line);
   
   //commands to prep for sending data to url 
-  if (!sendCommand("AT+CSQ\r")) goto shutdown;   
-  if (!sendCommand("AT+CREG?\r")) goto shutdown;    
-  if (!sendCommand("AT+CGDCONT=1,\"IP\",\"m2mglobal\"\r")) goto shutdown;    
-  if (!sendCommand("AT+CGATT=1\r")) goto shutdown;    
-  if (!sendCommand("AT+CGACT=1,1\r")) goto shutdown;    
-       sendCommand("AT+HTTPTERM\r", "AT+HTTPTERM");  
-  if (!sendCommand("AT+HTTPINIT\r")) goto shutdown;     
-  if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) goto shutdown;     
-       snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"\r", url);
-  if (!sendCommand(cmd)) goto shutdown;
-  if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) goto shutdown;    
+  if (!sendCommand("AT+CSQ\r")) return 0;                                       //Check signal quality                          
+  if (!sendCommand("AT+CREG?\r")) return 0;                                     //Network registration status                        
+  if (!sendCommand("AT+CGDCONT=1,\"IP\",\"m2mglobal\"\r")) return 0;            //Set PDP context with APN   
+  if (!sendCommand("AT+CGATT=1\r")) return 0;                                   //Attach to the GPRS network
+  if (!sendCommand("AT+CGACT=1,1\r")) return 0;                                 //Activate the PDP context
+       sendCommand("AT+HTTPTERM\r", "AT+HTTPTERM");                             //Terminate HTTP service session
+  if (!sendCommand("AT+HTTPINIT\r")) return 0;                                  //Initialize HTTP service
+  if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) return 0;                        //Set bearer profile ID for HTTP  
+       snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"\r", url);         //Set target URL
+  if (!sendCommand(cmd)) return 0;
+  if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) return 0; //Set content type for POST  
   
   //sending message
   digitalWrite(LED_PIN, LOW); 
-  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(message));
-  if (!sendCommand(cmd, "DOWNLOAD")) goto shutdown;    
-  if (!sendCommand(message)) goto shutdown; 
+  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(message));        //Prepare to send POST data
+  if (!sendCommand(cmd, "DOWNLOAD")) return 0;    
+  if (!sendCommand(message)) return 0; 
   delay(5000); 
-  if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {
-    delay(5000); 
-    snprintf(line, sizeof(line), "%s sent successfully.\n", reason);
+  if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {           //Execute HTTP POST
+    snprintf(line, sizeof(line), "\n%s sent successfully.\n", reason);
     print_SerialDisplay(line, 5000);
-    success = 1;
+    return 1; 
   }
   else {
-    snprintf(line, sizeof(line), "%s sending failed.\n", reason);
+    snprintf(line, sizeof(line), "\n%s sending failed.\n", reason);
     print_SerialDisplay(line, 10000);
+    return 0; 
   }
-  
-  //prep for shutdown 
-  shutdown:  
+}
+
+//prep cellular module for shutdown
+void shutdownCell() {
     print_SerialDisplay("\nCellular module shutdown...\n");
     if (digitalRead(LED_PIN)) digitalWrite(LED_PIN, LOW); 
-    delay(5000);
-    sendCommand("AT+HTTPTERM\r");   
-    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\ncellular module shutdown successfully.\n", 5000);
+    sendCommand("AT+HTTPTERM\r"); //Terminate HTTP service session
+    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\ncellular module shutdown successfully.\n", 5000); 
     else print_SerialDisplay("\ncellular module shutdown failed.\n", 10000);
-    return success; 
 }
 
 
