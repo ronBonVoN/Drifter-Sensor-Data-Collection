@@ -4,17 +4,14 @@ Kilroy was here
 */
 
 /*to-do
- test LED 
- update led txt file 
- upload to git 
  improve cell cmds
  fix 0 msgs
- get rid of led count
+ change cellCommand name
 */
 
 //change for testing 
 #define SLEEP_LOOPS 2 // 86 = ~10mins (87) (93)
-#define GPS_READ_MILLIS 10000 //180000 = 3mins 
+#define GPS_READ_MILLIS 60000 //180000 = 3mins 
 
 #define I2C_ADDRESS (0x67)
 #define SCREEN_ADDRESS (0x3C)
@@ -48,12 +45,12 @@ Kilroy was here
 #include <TinyGsmClient.h>
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-Adafruit_MCP9600 mcp; //thermocouple
-TinyGPSPlus gps;
+Adafruit_MCP9600 mcp;       //thermocouple
+TinyGPSPlus gps;   
 TinyGsm modem(CELL_SERIAL); //cellular communication module
 
 // customizable vars
-const char drifterName[20] = "Lumin"; 
+const char drifterName[20] = "Double"; 
 const char fileName[13] = "DATA.txt"; 
 const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj";
       // for testing -> "https://discordapp.com/api/webhooks/1401923116128669707/G7_utp4Gbo1fE5foKBWAxCOe12AhQyyvDfCFF5wA0-suP81QI6LCd_ErrZr5gcm_D0Rj"
@@ -61,20 +58,21 @@ const char url[200] = "https://discordapp.com/api/webhooks/1401923116128669707/G
 short timeAdjust = -4; //num hrs time difference to utc time, pos/neg if utc is behind/ahead
 
 // change for testing 
-short displayCount = 0; //# of cycles display will run
-short LEDcount = 10000; //# of cycles LED will run
-const bool serialEnable = 0; 
+short displayCount = 200; //# of cycles display will run
+short LEDcount = 1000; //# of cycles LED will run
+const bool serialEnable = 0;  
 
-short m = -1, d = -1, y = -1, hr = -1, min = -1, sec = -1; 
+short m[2] = {-1.0,-1.0}, d[2] = {-1.0,-1.0}, y[2] = {-1.0,-1.0}, hr[2] = {-1.0,-1.0}, min[2] = {-1.0,-1.0}, sec[2] = {-1.0,-1.0}; 
 short i;                  //for indexing
 unsigned long start, now; //for millis() while loops
-float lat = -1.0, lng = -1.0, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
-char c;             //for reading cellular module output
-char line[150];     // for general writing/printing
-char cmd[200];      // for building cellular module commands 
-char msg[200];      // for building cellular module message command 
-char data[13][15];  // where sensor data will go
+float lat[2] = {-1.0,-1.0},  lng[2] = {-1.0,-1.0}, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
+char c;            // for reading cellular module output
+char line[300];    // for general writing/printing
+char cmd[200];     // for building cellular module commands 
+char msg[350];     // for building cellular module message command 
+char data[9][15];  // for float data
 char outputCell[512]; 
+char gpsCell[10][15]; //output from cellular module gps 
 short monthDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}; //for adjusting timezone
 bool firstRun = 1; 
 bool SDstatus = 1; 
@@ -110,6 +108,33 @@ void blink(unsigned short num, unsigned int wait=3000, unsigned int pause = 300)
   } 
 }
 
+//for sending cellular module commands
+bool commandCell(const char* cmd, const char* res = "OK", unsigned int wait = 10000) {
+  CELL_SERIAL.print(cmd);
+  CELL_SERIAL.print('\r');
+  outputCell[0] = '\0'; 
+  start = millis(); 
+  while (millis() - start < wait) {    
+    while (CELL_SERIAL.available()) {
+      c =  CELL_SERIAL.read();
+      if (serialEnable) Serial.write(c);
+      i = strlen(outputCell); 
+      if (i < sizeof(outputCell)-1) {
+        outputCell[i] = c; 
+        outputCell[i + 1] = '\0'; 
+      }
+    } 
+     if (strstr(outputCell, res)) return 1; 
+  }
+  
+  if (serialEnable) { 
+    Serial.print(cmd); 
+    Serial.print(" timed out waiting for "); 
+    Serial.println(res);
+  }
+  return 0; 
+}
+
 void setup() {
   delay(5000); //time for arduino to adjust if program resets 
   if (serialEnable) Serial.begin(115200);
@@ -126,32 +151,39 @@ void setup() {
   digitalWrite(RELAY_PIN, HIGH); 
   delay(2000); 
 
-  if (displayCount>0) if(initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display")) blink(1);
+  if (displayCount>0) {
+    if(initialize(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS), "display")) blink(1);
+    else displayCount = 0; 
+  }
   if(initialize(mcp.begin(I2C_ADDRESS), "thermocouple")) blink(2); 
   if(initialize(SD.begin(SDCHIP_SELECT), "SD card")) blink(3); 
   
   //file heading
-  snprintf(line, sizeof(line), "GPS Date\tGPS Time\tLatitude\tLongitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\nUTC%hdhrs\tUTC%hdhrs\tGCS\tGCS\tmph\tdeg\tC\tC\tvolts\n",
-  timeAdjust, timeAdjust);
+  snprintf(line, sizeof(line), "Air530 GPS Date\tAir530 GPS Time\tAir530 Latitude\tAir530 Longitude\tSIM7600 GPS Date\tSIM7600 GPS Time\tSIM7600 Latitude\tSIM7600 Longitude\tSpeed\tHeading\tHot Junction\tCold Junction\tTurbidity\nUTC%hdhrs\tUTC%hdhrs\tGCS\tGCS\tUTC%hdhrs\tUTC%hdhrs\tGCS\tGCS\tmph\tdeg\tC\tC\tvolts\n",
+  timeAdjust, timeAdjust, timeAdjust, timeAdjust);
   print_SerialFile(line);
 
   //creating heading message to send through cellular module 
-  snprintf(msg, sizeof(msg), "{\"content\":\"^%s SD+Card+Status GPS+Date GPS+Time Latitude Longitude Speed Heading Hot+Junction Cold+Junction Turbidity(newline)bool UTC%+hdhrs UTC%+hdhrs GCS GCS mph deg C C volts\"}",
-  drifterName, timeAdjust, timeAdjust);
+  snprintf(msg, sizeof(msg), "{\"content\":\"^%s SD+Card+Status Air530+GPS+Date Air530+GPS+Time Air530+Latitude Air530+Longitude SIM7600+GPS+Date SIM7600+GPS+Time SIM7600+Latitude SIM7600+Longitude Speed Heading Hot+Junction Cold+Junction Turbidity(newline)bool UTC%+hdhrs UTC%+hdhrs GCS GCS UTC%+hdhrs UTC%+hdhrs GCS GCS mph deg C C volts\"}",
+  drifterName, timeAdjust, timeAdjust, timeAdjust, timeAdjust);
   
+  setupCell(); 
   if (sendCell(msg, "heading")) blink(4);
-}
+} 
 
 void loop() {
 /************************************************************ relay on ************************************************************/
   pinMode(RELAY_PIN, OUTPUT); 
   
   if (!firstRun) { //need to re-initialize sd card after relay shuts off, but dangerous to do twice during start up.
-    if (!SD.begin(SDCHIP_SELECT)) print_SerialDisplay("SD card failed\n", 10000); 
+    SD.begin(SDCHIP_SELECT); 
+    setupCell();
   }  
   else firstRun = 0;
 
-  print_SerialDisplay("Reading gps..."); 
+  
+  print_SerialDisplay("Reading gps...\n"); 
+  commandCell("AT+CGPS=1"); 
   start = millis(); 
   now = millis(); 
   while (millis() - start < GPS_READ_MILLIS) {  //3mins
@@ -162,15 +194,43 @@ void loop() {
     }
   }
   if (digitalRead(LED_PIN)) digitalWrite(LED_PIN, LOW); 
-  print_SerialDisplay("gps reading done.\n", 3000);
+  if (commandCell("AT+CGPSINFO") && outputCell[27] != ',') {
+    strncpy(gpsCell[0],  outputCell+27,11); gpsCell[0][13] = '\0'; 
+    gpsCell[1][0] = outputCell[39];         
+    strncpy(gpsCell[2],  outputCell+41,12); gpsCell[2][14] = '\0';   
+    gpsCell[3][0] = outputCell[54];  
+    strncpy(gpsCell[4],  outputCell+56, 2); gpsCell[4][ 2] = '\0';
+    strncpy(gpsCell[5],  outputCell+58, 2); gpsCell[5][ 2] = '\0';
+    strncpy(gpsCell[6],  outputCell+60, 2); gpsCell[6][ 2] = '\0';
+    strncpy(gpsCell[7],  outputCell+63, 2); gpsCell[7][ 2] = '\0';
+    strncpy(gpsCell[8],  outputCell+65, 2); gpsCell[8][ 2] = '\0';
+    strncpy(gpsCell[9],  outputCell+67, 2); gpsCell[9][ 2] = '\0';
+    lat[1] = atof(gpsCell[0]); lat[1] = floor(lat[1]/100) + (lat[1] - floor(lat[1]/100)*100)/60; 
+    lng[1] = atof(gpsCell[2]); lng[1] = floor(lng[1]/100) + (lng[1] - floor(lng[1]/100)*100)/60;
+    if (gpsCell[1][0] == 'S')  lat[1] *= -1; 
+    if (gpsCell[3][0] == 'W')  lng[1] *= -1; 
+    m[1] = atoi(gpsCell[5]); d[1] = atoi(gpsCell[4]); y[1] = atoi(gpsCell[6]); 
+    y[1] += 2000; 
+    hr[1] = atoi(gpsCell[7]); min[1] = atoi(gpsCell[8]); sec[1] = atoi(gpsCell[9]);
+  } 
+  else {
+    lat[1] = 0.0, lng[1]= 0.0; 
+    m[1] = 0, d[1] = 0, sec[1] = 0; 
+    hr[1] = 0, min[1] = 0, y[1] = 2000; 
+  }
+  commandCell("AT+CGPS=0"); 
+  print_SerialDisplay("\ngps reading done.\n", 3000);
  
-  print_SerialDisplay("Reading sensors...");
-  m = gps.date.month(); d = gps.date.day(); y = gps.date.year(); 
-  hr = gps.time.hour(); min = gps.time.minute(); sec = gps.time.second(); 
-  if (!(m<=0 && d<=0 && y<=2000 && hr<=0 && min<=0 && sec<=0)) /*<--------------->*/ blink(1);
-  adjustTime(); //adjust time zone  
-  lat = gps.location.lat(); lng = gps.location.lng(); 
-  if (lat!=0 && lng!=0 && lat!=-1 && lng!=-1) /*<-------------------------------->*/ blink(2); 
+  print_SerialDisplay("\nReading sensors...");   
+  m[0] = gps.date.month(); d[0] = gps.date.day(); y[0] = gps.date.year(); 
+  hr[0] = gps.time.hour(); min[0] = gps.time.minute(); sec[0] = gps.time.second(); 
+  if (!(m[0]<=0 && d[0]<=0 && y[0]<=2000 && hr[0]<=0 && min[0]<=0 && sec[0]<=0)) /*<--------------->*/ blink(1);
+  
+  adjustTime(m[0], d[0], y[0], hr[0], min[0], sec[0]); //adjust time zone  
+  adjustTime(m[1], d[1], y[1], hr[1], min[1], sec[1]);
+  
+  lat[0] = gps.location.lat(); lng[0] = gps.location.lng(); 
+  if (lat[0]!=0 && lng[0]!=0 && lat[0]!=-1 && lng[0]!=-1) /*<-------------------->*/ blink(2); 
   speed = gps.speed.mps(); heading = gps.course.deg();  
   tempHot = mcp.readThermocouple(); tempCold = mcp.readAmbient();
   if ((tempHot == tempHot) && (tempCold == tempCold) && tempCold!=-1 && tempHot!=-1) blink(3);
@@ -178,51 +238,65 @@ void loop() {
   if (!(turbidity<=0) && !(turbidity>=5)) /*<------------------------------------>*/ blink(4); 
   print_SerialDisplay("sensor reading done.\n"); 
 
-  //writing floats to char array       ***size************ 
-  snprintf(data[0],  3, "%02d", m);    // MM\0
-  snprintf(data[1],  3, "%02d", d);    // DD\0
-  snprintf(data[2],  5, "%04d", y);    // YYYY\0
-  snprintf(data[3],  3, "%02d", hr);   // 00\0
-  snprintf(data[4],  3, "%02d", min);  // 00\0
-  snprintf(data[5],  3, "%02d", sec);  // 00\0
-  dtostrf(lat,      10,  8, data[6]);  // -90.000000 -> _90.000000
-  dtostrf(lng,       10, 8, data[7]);  // -90.000000 -> _90.000000
-  dtostrf(speed,     5,  2, data[8]);  // 00.00
-  dtostrf(heading,   6,  2, data[9]);  // __0.00 -> 360.00
-  dtostrf(tempHot,   6,  2, data[10]); // -00.00 -> _00.00
-  dtostrf(tempCold,  6,  2, data[11]); // -00.00 -> _00.00
-  dtostrf(turbidity, 4,  2, data[12]); // 0.00
-
+  dtostrf(lat[0],    10, 6, data[0]); // -90.000000 -> _90.000000
+  dtostrf(lng[0],    10, 6, data[1]); // -90.000000 -> _90.000000
+  dtostrf(lat[1],    10, 6, data[2]); // -90.000000 -> _90.000000
+  dtostrf(lng[1],    10, 6, data[3]); // -90.000000 -> _90.000000
+  dtostrf(speed,     5,  2, data[4]); // 00.00
+  dtostrf(heading,   6,  2, data[5]); // __0.00 -> 360.00
+  dtostrf(tempHot,   6,  2, data[6]); // -00.00 -> _00.00
+  dtostrf(tempCold,  6,  2, data[7]); // -00.00 -> _00.00
+  dtostrf(turbidity, 4,  2, data[8]); // 0.00
+  
   //printing data to file 
-  snprintf(line, sizeof(line), "%s-%s-%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-  data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
+  snprintf(line, sizeof(line), "%02d-%02d-%04d\t%02d:%02d:%02d\t%s\t%s\t%02d-%02d-%04d\t%02d:%02d:%02d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+  m[0], d[0], y[0], hr[0], min[0], sec[0], data[0], data[1],
+  m[1], d[1], y[1], hr[1], min[1], sec[1], data[2], data[3], 
+  data[4], data[5], data[6], data[7], data[8]);
   print_SerialFile(line); 
-
+  
   //creating data message to send through cellular module 
-  snprintf(msg, sizeof(msg), "{\"content\":\"~%s %d %s-%s-%s %s:%s:%s %s %s %s %s %s %s %s\"}",
-  drifterName, SDstatus, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12]);
+  snprintf(msg, sizeof(msg), "{\"content\":\"~%s %d %02d-%02d-%04d %02d:%02d:%02d %s %s %02d-%02d-%04d %02d:%02d:%02d %s %s %s %s %s %s %s\"}",
+  drifterName, SDstatus, 
+  m[0], d[0], y[0], hr[0], min[0], sec[0], data[0], data[1],
+  m[1], d[1], y[1], hr[1], min[1], sec[1], data[2], data[3], 
+  data[4], data[5], data[6], data[7], data[8]);
 
-  if (sendCell(msg, "data")) blink(5); 
-  shutdownCell(); 
+  sendCell(msg, "data");
+  
+  //prep cellular module for shutdown
+  print_SerialDisplay("\nCellular module shutdown...\n");
+  commandCell("AT+HTTPTERM", "AT+HTTPTERM");
+  if (commandCell("AT+CPOF")) print_SerialDisplay("\ncellular module shutdown successfully.\n", 5000); 
+  else print_SerialDisplay("\ncellular module shutdown failed.\n", 10000);
 
   if (displayCount>0) {
     display.clearDisplay(); 
     display.setTextColor(WHITE); 
     display.setTextSize(1); 
-    snprintf(line, sizeof(line), "%s-%s-%s %s:%s:%s", data[0], data[1], data[2], data[3], data[4], data[5]); 
+    snprintf(line, sizeof(line), "%s-%s-%s %s:%s:%s", m[0], d[0], y[0], hr[0], min[0], sec[0]); 
     display.setCursor(0,0);  display.print(line);                                                            
-    snprintf(line, sizeof(line), "lat:%s", data[6]);                                                         
+    snprintf(line, sizeof(line), "lat:%s", data[0]);                                                         
     display.setCursor(0,10); display.print(line);                                          
-    snprintf(line, sizeof(line), "lng:%s", data[7]);                                              
+    snprintf(line, sizeof(line), "lng:%s", data[1]);                                              
     display.setCursor(0,20); display.print(line); 
-    snprintf(line, sizeof(line), "mph:%s deg:%s", data[8], data[9]);                                         
+    snprintf(line, sizeof(line), "mph:%s deg:%s", data[4], data[5]);                                         
     display.setCursor(0,30); display.print(line);
-    snprintf(line, sizeof(line), "temp:%s, %s", data[10], data[11]);
+    snprintf(line, sizeof(line), "temp:%s, %s", data[6], data[7]);
     display.setCursor(0,40); display.print(line);
-    snprintf(line, sizeof(line), "turbidity: %s", data[12]);
+    snprintf(line, sizeof(line), "turbidity: %s", data[8]);
     display.setCursor(0,50); display.print(line);
     display.display(); 
-    delay(10000); 
+    delay(5000); 
+    display.clearDisplay(); 
+    snprintf(line, sizeof(line), "%s-%s-%s %s:%s:%s", m[1], d[1], y[1], hr[1], min[1], sec[1]); 
+    display.setCursor(0,0);  display.print(line);                                                            
+    snprintf(line, sizeof(line), "lat:%s", data[2]);                                                         
+    display.setCursor(0,10); display.print(line);                                          
+    snprintf(line, sizeof(line), "lng:%s", data[3]);                                              
+    display.setCursor(0,20); display.print(line); 
+    display.display(); 
+    delay(5000); 
   }
 
   if (displayCount==1) {
@@ -244,7 +318,19 @@ void loop() {
   wdt_disable();
 
   blink(2,0,2000); 
-  for(i=0; i<SLEEP_LOOPS; i++) sleepArduino(); //puts arduino into a low power mode (~8secs) per loop 
+  for(i=0; i<SLEEP_LOOPS; i++) {
+    //puts arduino into a low power mode  
+    //interupt watchdog 
+    shouldWake = false; 
+    MCUSR = 0;
+    WDTCSR |= (1 << WDCE) | (1 << WDE);
+    WDTCSR = (1 << WDIE) | (1 << WDP3); //setting ~8sec sleep 
+    
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+    sleep_cpu();
+    sleep_disable();
+  }
   blink(2,0,2000); 
   
   wdt_enable(WDTO_8S);
@@ -292,7 +378,7 @@ void print_SerialFile(const char* message) {
   }
 }
 
-void adjustTime() {
+void adjustTime(short &m, short &d, short &y, short &hr, short &min, short &sec) {
   //adjusts timezone based on adjust amount varibale 
   if (hr<=0 && min<=0 && sec<=0) return; 
   else hr += timeAdjust; 
@@ -332,105 +418,72 @@ void adjustTime() {
   }
 }
 
-void sleepArduino() {
-    //interupt watchdog 
-    shouldWake = false; 
-    MCUSR = 0;
-    WDTCSR |= (1 << WDCE) | (1 << WDE);
-    WDTCSR = (1 << WDIE) | (1 << WDP3); //setting ~8sec sleep 
-    
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    sleep_enable();
-    sleep_cpu();
-    sleep_disable();
-}
-
-//for sending cellular module commands
-bool sendCommand(const char* cmd, const char* res = "OK", unsigned int wait = 10000) {
-  CELL_SERIAL.print(cmd);
-  outputCell[0] = '\0'; 
-  start = millis(); 
-  while (millis() - start < wait) {    
-    while (CELL_SERIAL.available()) {
-      c =  CELL_SERIAL.read();
-      if (serialEnable) Serial.write(c);
-      i = strlen(outputCell); 
-      if (i < sizeof(outputCell)-1) {
-        outputCell[i] = c; 
-        outputCell[i + 1] = '\0'; 
-      }
-    } 
-     if (strstr(outputCell, res)) return 1; 
-  }
-  if (serialEnable) {
-    Serial.print(cmd); 
-    Serial.print(" timed out waiting for "); 
-    Serial.println(res);
-  }
-  return 0; 
-}
-
-bool sendCell(const char* message, const char* reason) {
-  //message cannot have tabs or newlines
-  
-  print_SerialDisplay("Initializing cellular module...\n\n");  
-  digitalWrite(LED_PIN, HIGH); 
+bool setupCell() {
   //power-key button needed to start cellular module
+  print_SerialDisplay("Initializing cellular module...\n");
+  digitalWrite(LED_PIN, HIGH); 
+
   pinMode(CELL_PWK, OUTPUT);
   digitalWrite(CELL_PWK, LOW);
-  delay(3000); 
+  delay(1200); 
   digitalWrite(CELL_PWK, HIGH); 
   delay(3000); 
   
   start = millis(); 
-  while (millis()-start < 60000) {
-    if (sendCommand("AT\r")) break; //Basic communication test
-  } 
-  if (!sendCommand("AT\r")) {
-    print_SerialDisplay("\ncellular module initialization failed.\n", 10000);
-    return 0;   
-  } 
+  //Basic communication test
+  for (i=0; i<12; i++) {
+    if (commandCell("AT", "OK", 5000)) {
+      print_SerialDisplay("\ncellular module initialization done.\n");
+      digitalWrite(LED_PIN, LOW); 
+      return 1;
+    }
+  }
+  print_SerialDisplay("\ncellular module failed.\n"); 
+  digitalWrite(LED_PIN, LOW); 
+  return 0;  
+}
+
+bool sendCell(const char* message, const char* reason) {
+  //message cannot have tabs or newlines
   snprintf(line, sizeof(line), "\nSending %s...\n", reason);
-  print_SerialDisplay(line);
+  print_SerialDisplay(line);    
   
   //commands to prep for sending data to url 
-  if (!sendCommand("AT+CSQ\r")) return 0;                                       //Check signal quality                          
-  if (!sendCommand("AT+CREG?\r")) return 0;                                     //Network registration status                        
-  if (!sendCommand("AT+CGDCONT=1,\"IP\",\"m2mglobal\"\r")) return 0;            //Set PDP context with APN   
-  if (!sendCommand("AT+CGATT=1\r")) return 0;                                   //Attach to the GPRS network
-  if (!sendCommand("AT+CGACT=1,1\r")) return 0;                                 //Activate the PDP context
-       sendCommand("AT+HTTPTERM\r", "AT+HTTPTERM");                             //Terminate HTTP service session
-  if (!sendCommand("AT+HTTPINIT\r")) return 0;                                  //Initialize HTTP service
-  if (!sendCommand("AT+HTTPPARA=\"CID\",1\r")) return 0;                        //Set bearer profile ID for HTTP  
-       snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"\r", url);         //Set target URL
-  if (!sendCommand(cmd)) return 0;
-  if (!sendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"\r")) return 0; //Set content type for POST  
+  if (!(commandCell("AT") &&  //Basic communication test
+        commandCell("AT+CSQ") &&  //Check signal quality
+        commandCell("AT+CREG?") && //Network registration status 
+        commandCell("AT+CGDCONT=1,\"IP\",\"m2mglobal\"") && //Set PDP context with APN
+        commandCell("AT+CGATT=1") && //Attach to the GPRS network
+        commandCell("AT+CGACT=1,1")) //Activate the PDP context
+  ) goto fail; 
   
+  commandCell("AT+HTTPTERM", "AT+HTTPTERM"); //Terminate HTTP service session
+  snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"", url); //Set target URL
+  if (!(commandCell("AT+HTTPINIT") &&  //Initialize HTTP
+        commandCell("AT+HTTPPARA=\"CID\",1") && //Set bearer profile ID for HTTP
+        commandCell(cmd) && 
+        commandCell("AT+HTTPPARA=\"CONTENT\",\"application/json\"")) //Set content type for POST
+  ) goto fail; 
+
   //sending message
-  digitalWrite(LED_PIN, LOW); 
-  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000\r", strlen(message));        //Prepare to send POST data
-  if (!sendCommand(cmd, "DOWNLOAD")) return 0;    
-  if (!sendCommand(message)) return 0; 
+  snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000", strlen(message)); //Prepare to send POST data
+  if (!(commandCell(cmd, "DOWNLOAD") &&
+        commandCell(message))
+  ) goto fail; 
+ 
   delay(5000); 
-  if (sendCommand("AT+HTTPACTION=1\r", "+HTTP_PEER_CLOSED", 60000)) {           //Execute HTTP POST
+  if (commandCell("AT+HTTPACTION=1", "+HTTP_PEER_CLOSED", 60000)) { //Execute HTTP POST
+    commandCell("AT+HTTPTERM", "AT+HTTPTERM");
     snprintf(line, sizeof(line), "\n%s sent successfully.\n", reason);
     print_SerialDisplay(line, 5000);
     return 1; 
   }
-  else {
+
+  fail: 
+    commandCell("AT+HTTPTERM", "AT+HTTPTERM");
     snprintf(line, sizeof(line), "\n%s sending failed.\n", reason);
     print_SerialDisplay(line, 10000);
     return 0; 
-  }
-}
-
-//prep cellular module for shutdown
-void shutdownCell() {
-    print_SerialDisplay("\nCellular module shutdown...\n");
-    if (digitalRead(LED_PIN)) digitalWrite(LED_PIN, LOW); 
-    sendCommand("AT+HTTPTERM\r"); //Terminate HTTP service session
-    if (sendCommand("AT+CPOF\r")) print_SerialDisplay("\ncellular module shutdown successfully.\n", 5000); 
-    else print_SerialDisplay("\ncellular module shutdown failed.\n", 10000);
 }
 
 

@@ -104,6 +104,7 @@ async def on_message(message):
 
     
     time_zone = datetime.now().astimezone().strftime("%Z") or datetime.now().astimezone().tzname() or "LOCAL"
+    msgs_formatted += msgs_with_name
     
     # format stored messages 
     for i in range(len(file_content)):
