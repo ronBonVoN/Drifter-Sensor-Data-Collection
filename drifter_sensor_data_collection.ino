@@ -10,8 +10,8 @@ Kilroy was here
 */
 
 //change for testing 
-#define SLEEP_LOOPS 2 // 86 = ~10mins (87) (93)
-#define GPS_READ_MILLIS 60000 //180000 = 3mins 
+#define SLEEP_LOOPS 87 // 86 = ~10mins (87) (93)
+#define GPS_READ_MILLIS 180000 //180000 = 3mins 
 
 #define I2C_ADDRESS (0x67)
 #define SCREEN_ADDRESS (0x3C)
@@ -64,6 +64,7 @@ const bool serialEnable = 0;
 
 short m[2] = {-1.0,-1.0}, d[2] = {-1.0,-1.0}, y[2] = {-1.0,-1.0}, hr[2] = {-1.0,-1.0}, min[2] = {-1.0,-1.0}, sec[2] = {-1.0,-1.0}; 
 short i;                  //for indexing
+short k; 
 unsigned long start, now; //for millis() while loops
 float lat[2] = {-1.0,-1.0},  lng[2] = {-1.0,-1.0}, speed = -1.0, heading = -1.0, tempHot = -1.0, tempCold = -1.0, turbidity = -1.0; 
 char c;            // for reading cellular module output
@@ -266,7 +267,6 @@ void loop() {
   
   //prep cellular module for shutdown
   print_SerialDisplay("\nCellular module shutdown...\n");
-  commandCell("AT+HTTPTERM", "AT+HTTPTERM");
   if (commandCell("AT+CPOF")) print_SerialDisplay("\ncellular module shutdown successfully.\n", 5000); 
   else print_SerialDisplay("\ncellular module shutdown failed.\n", 10000);
 
@@ -429,9 +429,8 @@ bool setupCell() {
   digitalWrite(CELL_PWK, HIGH); 
   delay(3000); 
   
-  start = millis(); 
-  //Basic communication test
-  for (i=0; i<12; i++) {
+  now = millis(); 
+  while (millis()-now < 120000) {
     if (commandCell("AT", "OK", 5000)) {
       print_SerialDisplay("\ncellular module initialization done.\n");
       digitalWrite(LED_PIN, LOW); 
@@ -449,21 +448,18 @@ bool sendCell(const char* message, const char* reason) {
   print_SerialDisplay(line);    
   
   //commands to prep for sending data to url 
-  if (!(commandCell("AT") &&  //Basic communication test
-        commandCell("AT+CSQ") &&  //Check signal quality
-        commandCell("AT+CREG?") && //Network registration status 
-        commandCell("AT+CGDCONT=1,\"IP\",\"m2mglobal\"") && //Set PDP context with APN
-        commandCell("AT+CGATT=1") && //Attach to the GPRS network
-        commandCell("AT+CGACT=1,1")) //Activate the PDP context
-  ) goto fail; 
-  
-  commandCell("AT+HTTPTERM", "AT+HTTPTERM"); //Terminate HTTP service session
   snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"", url); //Set target URL
-  if (!(commandCell("AT+HTTPINIT") &&  //Initialize HTTP
-        commandCell("AT+HTTPPARA=\"CID\",1") && //Set bearer profile ID for HTTP
-        commandCell(cmd) && 
-        commandCell("AT+HTTPPARA=\"CONTENT\",\"application/json\"")) //Set content type for POST
-  ) goto fail; 
+  if (!(
+    commandCell("AT+CSQ") &&  //Check signal quality
+    commandCell("AT+CREG?") && //Network registration status, output +CREG: 0,1 or +CREG: 0,5 is good
+    commandCell("AT+CGDCONT=1,\"IP\",\"m2mglobal\"") && //Set PDP context with APN
+    commandCell("AT+CGATT=1") && //Attach to the GPRS network
+    commandCell("AT+CGACT=1,1") && //Activate the PDP context
+    commandCell("AT+HTTPINIT") &&  //Initialize HTTP
+    commandCell("AT+HTTPPARA=\"CID\",1") && //Set bearer profile ID for HTTP
+    commandCell(cmd) && 
+    commandCell("AT+HTTPPARA=\"CONTENT\",\"application/json\"") //Set content type for POST
+  )) goto fail; 
 
   //sending message
   snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000", strlen(message)); //Prepare to send POST data
@@ -473,14 +469,14 @@ bool sendCell(const char* message, const char* reason) {
  
   delay(5000); 
   if (commandCell("AT+HTTPACTION=1", "+HTTP_PEER_CLOSED", 60000)) { //Execute HTTP POST
-    commandCell("AT+HTTPTERM", "AT+HTTPTERM");
+    commandCell("AT+HTTPTERM");
     snprintf(line, sizeof(line), "\n%s sent successfully.\n", reason);
     print_SerialDisplay(line, 5000);
     return 1; 
   }
 
   fail: 
-    commandCell("AT+HTTPTERM", "AT+HTTPTERM");
+    commandCell("AT+HTTPTERM");
     snprintf(line, sizeof(line), "\n%s sending failed.\n", reason);
     print_SerialDisplay(line, 10000);
     return 0; 
