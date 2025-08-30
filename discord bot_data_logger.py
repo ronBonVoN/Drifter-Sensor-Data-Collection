@@ -112,7 +112,7 @@ async def on_message(message):
             # clear ~name or ^name
             file_content[i] = file_content[i].replace(f"~{name} ", "").replace(f"^{name} ", "")
             # replace any spaces or consecutive spaces with tab character
-            file_content[i] = '\t'.join(file_content[i].split()) 
+            file_content[i] = '\t'.join(file_content[i].split())
             #replace plus with space
             file_content[i] = file_content[i].replace("+", " ")
             # replace (newline) with newline and tab characters 

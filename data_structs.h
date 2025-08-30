@@ -13,8 +13,6 @@ struct Data {
   float val; 
   char str_val[20]; 
   bool status; 
-  uint8_t adress; 
-  short pin; 
 };
 
 struct Date {
@@ -30,13 +28,13 @@ struct Date {
 
 struct Time {
   Header header; 
-  short hr = -1.0; 
-  short min = -1.0; 
-  short sec = -1.0; 
-  char str_hr[3] = "00"; 
-  char str_min[3] = "00"; 
-  char str_sec[3] = "00";
-  char str_time[9] = "00:00:00"; 
-};
+  short hr ; 
+  short min; 
+  short sec ; 
+  char str_hr[3]; 
+  char str_min[3]; 
+  char str_sec[3];
+  char str_time[9]; 
+};  
 
 #endif
