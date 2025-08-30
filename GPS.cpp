@@ -25,9 +25,9 @@ namespace GPS {
     
     while (millis() - start < wait) {  
       while (GPS_SERIAL.available()) gps.encode(GPS_SERIAL.read());
-      if (millis() - now >= 300) { // need to use while() instead of delay() for
-          now += 300;              // blinking during reading gps to not pause reading
-          digitalWrite(LED::pin, !digitalRead(LED::pin)); // togel LED
+      if (millis() - now >= 300) { 
+          now += 300;              
+          digitalWrite(LED::pin, !digitalRead(LED::pin)); 
       }
     }
     if (digitalRead(LED::pin)) digitalWrite(LED::pin, LOW); 
@@ -103,7 +103,7 @@ namespace GPS {
 
   void timezone(Date &date, Time &time) {
     //adjusts timezone based on adjust amount varibale 
-    int monthDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}; //for adjusting timezone
+    int monthDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}; 
     
     if (time.hr<=0 && time.min<=0 && time.sec<=0) return; 
     else time.hr += timeAdjust; 

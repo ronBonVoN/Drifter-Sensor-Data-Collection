@@ -113,8 +113,8 @@ async def on_message(message):
             file_content[i] = file_content[i].replace(f"~{name} ", "").replace(f"^{name} ", "")
             # replace any spaces or consecutive spaces with tab character
             file_content[i] = '\t'.join(file_content[i].split())
-            #replace plus with space
-            file_content[i] = file_content[i].replace("+", " ")
+            #replace (|) with space
+            file_content[i] = file_content[i].replace("|", "\t")
             # replace (newline) with newline and tab characters 
             file_content[i] = file_content[i].replace("(newline)", f"\n{time_zone}\t{time_zone}\t")
         except: 

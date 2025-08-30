@@ -62,6 +62,7 @@ void setup() {
   ); 
 
   Cellular::init(); 
+  delay(60000); 
   Cellular::send(line, "heading"); 
 } 
 
@@ -73,7 +74,7 @@ void loop() {
   }  
   else firstRun = 0;
   
-  GPS::get(5000); 
+  GPS::get(180000); //180000 = 3mins read
   
   Display::write("Parsing data..."); 
   GPS::timezone(GPS::SIM7600_date, GPS::SIM7600_time); 
@@ -84,7 +85,7 @@ void loop() {
   if (Turbidity::read()) LED::blink(4); 
   Display::write("parsing data done\n");
 
-  //printing data to file 
+  //data to file 
   snprintf(line, sizeof(line), "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
     GPS::Air530_date.str_date, GPS::Air530_time.str_time,GPS:: Air530_lat.str_val, GPS::Air530_lng.str_val, 
     GPS::SIM7600_date.str_date, GPS::SIM7600_time.str_time, GPS::SIM7600_lat.str_val, GPS::SIM7600_lng.str_val, 
@@ -94,6 +95,7 @@ void loop() {
   
   SDcard::write(line); 
   
+  //data to cellular module
   snprintf(line, sizeof(line), "{\"content\":\"~%s %d %s %s %s %s %s %s %s %s %s %s %s\"}",
     drifterName,
     SDcard::status.status, 
@@ -111,7 +113,7 @@ void loop() {
   Display::count -= 1; 
   LED::count -= 1; 
 
-  Arduino::sleep(2); 
+  Arduino::sleep(87); //relay off, Arduino sleep (~87 = 7mins sleep)
 }
 
 

@@ -3,7 +3,7 @@
 #pragma once
 #include "data_structs.h"
 
-inline int serialEnable = 1; 
+inline int serialEnable = 0; 
 inline char line[400]; 
 
 namespace SDcard {

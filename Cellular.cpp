@@ -8,7 +8,7 @@
 #include "data_structs.h"
 #include "functions.h"
 
-TinyGsm modem(CELL_SERIAL); //cellular communication module
+TinyGsm modem(CELL_SERIAL); 
 
 namespace Cellular {
   void setup() {
