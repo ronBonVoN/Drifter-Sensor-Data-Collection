@@ -78,7 +78,7 @@ namespace GPS {
     Air530_time.min = gps.time.minute();  
     Air530_time.sec = gps.time.second(); 
     Air530_lat.val = gps.location.lat(); 
-    Air530_lat.val = gps.location.lng(); 
+    Air530_lng.val = gps.location.lng(); 
 
     Display::write("\ngps reading done.\n"); 
   }
